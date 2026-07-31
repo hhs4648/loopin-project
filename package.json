@@ -1,0 +1,11 @@
+{
+  "name": "loopin-project",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix loopin-web run dev",
+    "build": "npm --prefix loopin-web run build",
+    "start": "npm --prefix loopin-web run start",
+    "lint": "npm --prefix loopin-web run lint"
+  }
+}
