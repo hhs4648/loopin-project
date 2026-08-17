@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { AssignAssignmentModal } from "@/components/teacher/AssignAssignmentModal";
+import { useRouter } from "next/navigation";
+import { isUnresolvedWordMeaning } from "@/lib/ai/resolve-word-meaning";
 import {
   analyzeSelectedWord,
   buildSentenceAnalysis,
 } from "@/lib/ai/sentence-problem-service";
+import { getAllIdioms } from "@/lib/problem-bank";
 import {
   parseEnglishPassage,
   splitIntoMeaningSentences,
@@ -18,10 +20,7 @@ import {
   type SentenceAnalysis,
   type WordAnalysis,
 } from "@/lib/ai/sentence-problem-types";
-import {
-  type CreateClassAssignmentInput,
-  upsertAssignmentsForProblemSet,
-} from "@/lib/class-assignments";
+import { saveAssignDraft } from "@/lib/assign-draft";
 import {
   appendProblemSet,
   loadProblemSets,
@@ -31,7 +30,6 @@ import {
   type CustomAssignmentDraft,
   type SavedProblemSet,
 } from "@/lib/problem-sets";
-import { publishProblemSetAndAssignments } from "@/lib/sync/teacher-sync";
 import {
   loadTeacherClasses,
   type TeacherClass,
@@ -45,12 +43,12 @@ type CustomAssignmentCreateModalProps = {
 };
 
 const DEFAULT_TYPE_ON: Record<CustomProblemTypeId, boolean> = {
-  match: true,
+  match: false,
   listen: false,
-  choice: true,
-  spell: true,
-  chunk: true,
-  translate: true,
+  choice: false,
+  spell: false,
+  chunk: false,
+  translate: false,
   write: false,
 };
 
@@ -187,6 +185,74 @@ function sentenceDraftsFromRecord(
   return next;
 }
 
+function isBlank(value: string | undefined): boolean {
+  return !value?.trim();
+}
+
+/** 교사 수정이 필요한 칸이 있으면 짧은 안내 문구, 없으면 null */
+function getNeedsEditReason(params: {
+  hasWordType: boolean;
+  hasSentenceType: boolean;
+  requireChunksEn: boolean;
+  requireChunksKo: boolean;
+  selectedIds: string[];
+  analyses: Record<string, WordAnalysis>;
+  loadingIds: string[];
+  errors: Record<string, string>;
+  sentenceRows: SentenceAnalysis[];
+}): string | null {
+  const {
+    hasWordType,
+    hasSentenceType,
+    requireChunksEn,
+    requireChunksKo,
+    selectedIds,
+    analyses,
+    loadingIds,
+    errors,
+    sentenceRows,
+  } = params;
+
+  if (hasWordType && selectedIds.length > 0) {
+    if (loadingIds.some((id) => selectedIds.includes(id))) {
+      return "단어 분석이 끝날 때까지 기다려 주세요.";
+    }
+    if (selectedIds.some((id) => errors[id])) {
+      return "분석에 실패한 단어가 있어요. 다시 시도하거나 뜻을 직접 수정해 주세요.";
+    }
+    for (const id of selectedIds) {
+      const row = analyses[id];
+      if (!row) {
+        return "선택한 단어의 분석 결과를 확인해 주세요.";
+      }
+      if (
+        isBlank(row.lemma) ||
+        isBlank(row.sourceSentence) ||
+        isBlank(row.translationKo) ||
+        isUnresolvedWordMeaning(row.meaningKo)
+      ) {
+        return "표에서 비어 있거나 수정이 필요한 칸을 채워 주세요.";
+      }
+    }
+  }
+
+  if (hasSentenceType) {
+    for (const row of sentenceRows) {
+      if (isBlank(row.english) || isBlank(row.translationKo)) {
+        return "표에서 비어 있거나 수정이 필요한 칸을 채워 주세요.";
+      }
+      if (requireChunksEn && isBlank(row.chunksEn)) {
+        return "표에서 비어 있거나 수정이 필요한 칸을 채워 주세요.";
+      }
+      if (requireChunksKo && isBlank(row.chunksKo)) {
+        return "표에서 비어 있거나 수정이 필요한 칸을 채워 주세요.";
+      }
+    }
+  }
+
+  return null;
+}
+
 export function CustomAssignmentCreateModal({
   open,
   onClose,
@@ -206,20 +272,21 @@ export function CustomAssignmentCreateModal({
   const [sentenceDrafts, setSentenceDrafts] = useState<
     Record<number, SentenceAnalysis>
   >({});
+  const router = useRouter();
   const [classes, setClasses] = useState<TeacherClass[]>([]);
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [pendingInput, setPendingInput] =
-    useState<CreateProblemSetInput | null>(null);
   const [pendingProblemSet, setPendingProblemSet] =
     useState<SavedProblemSet | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [hydratedId, setHydratedId] = useState<string | null>(null);
 
+  // 숙어는 한 단어처럼 클릭되게 — 청크 나눔과 같은 목록을 쓴다
+  const idioms = useMemo(() => getAllIdioms(), []);
+
   const sentences = useMemo(
-    () => (passage ? parseEnglishPassage(passage) : []),
-    [passage],
+    () => (passage ? parseEnglishPassage(passage, idioms) : []),
+    [passage, idioms],
   );
 
   const resetAll = useCallback(() => {
@@ -234,8 +301,6 @@ export function CustomAssignmentCreateModal({
     setTypeOn({ ...DEFAULT_TYPE_ON });
     setSentenceDrafts({});
     setSelectedClassIds([]);
-    setAssignOpen(false);
-    setPendingInput(null);
     setPendingProblemSet(null);
     setSubmitting(false);
     setSubmitError("");
@@ -255,7 +320,10 @@ export function CustomAssignmentCreateModal({
       setSentenceDrafts(sentenceDraftsFromRecord(draftData.sentenceDrafts));
     } else {
       const passageText = problemSet.items.sentences.join("\n");
-      const parsed = passageText ? parseEnglishPassage(passageText) : [];
+      // 저장할 때와 같은 규칙으로 나눠야 단어 선택이 그대로 복원된다
+      const parsed = passageText
+        ? parseEnglishPassage(passageText, getAllIdioms())
+        : [];
       const remaining = problemSet.items.words.map((w) => w.toLowerCase());
       const restoredIds: string[] = [];
       const restoredAnalyses: Record<string, WordAnalysis> = {};
@@ -277,6 +345,9 @@ export function CustomAssignmentCreateModal({
             lemma: token.text.toLowerCase(),
             meaningKo: `${token.text} (뜻 확인)`,
             pos: "other",
+            // 저장본에는 뜻이 없어 복원 시엔 항상 교사 확인이 필요하다
+            needsReview: true,
+            candidates: [],
             sourceSentence: sentence.text,
             translationKo: "",
           };
@@ -294,8 +365,6 @@ export function CustomAssignmentCreateModal({
     setLoadingIds([]);
     setErrors({});
     setSelectedClassIds([...problemSet.assignedClassIds]);
-    setAssignOpen(false);
-    setPendingInput(null);
     setPendingProblemSet(problemSet);
     setSubmitting(false);
     setSubmitError("");
@@ -328,15 +397,14 @@ export function CustomAssignmentCreateModal({
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (assignOpen) return;
       onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, assignOpen]);
+  }, [open, onClose]);
 
   const handleClose = () => {
-    if (assignOpen || submitting) return;
+    if (submitting) return;
     resetAll();
     onClose();
   };
@@ -428,12 +496,39 @@ export function CustomAssignmentCreateModal({
   };
 
   const updateAnalysis = (id: string, patch: Partial<WordAnalysis>) => {
+    setSubmitError("");
     setAnalyses((prev) => {
       const current = prev[id];
       if (!current) return prev;
-      return { ...prev, [id]: { ...current, ...patch } };
+      // 교사가 뜻을 직접 손대면 「확인 필요」는 해소된 것으로 본다
+      const resolved =
+        patch.meaningKo != null && patch.meaningKo !== current.meaningKo
+          ? { needsReview: false }
+          : null;
+      return { ...prev, [id]: { ...current, ...patch, ...resolved } };
     });
   };
+
+  /**
+   * 후보 칩 클릭 = 교사의 확인. **값이 그대로여도 확인으로 친다** —
+   * 첫 칩은 이미 선택된 뜻이라, 값 변화만 보면 "이게 맞아요"라고 누른 게
+   * 아무 반응 없이 먹히지 않는다.
+   */
+  const confirmMeaning = (id: string, meaningKo: string) => {
+    setSubmitError("");
+    setAnalyses((prev) => {
+      const current = prev[id];
+      if (!current) return prev;
+      return { ...prev, [id]: { ...current, meaningKo, needsReview: false } };
+    });
+  };
+
+  /** 예문과 대조하지 못해 대표 뜻으로 채운 행 수 */
+  const reviewCount = useMemo(
+    () =>
+      selectedIds.filter((id) => analyses[id]?.needsReview).length,
+    [selectedIds, analyses],
+  );
 
   const selectedAnalyses = useMemo(
     () =>
@@ -475,6 +570,7 @@ export function CustomAssignmentCreateModal({
           english,
           translationKo,
           wordMeanings: meanings,
+          idioms: getAllIdioms(),
         });
       }
       return next;
@@ -493,6 +589,7 @@ export function CustomAssignmentCreateModal({
     sentenceIndex: number,
     patch: Partial<SentenceAnalysis>,
   ) => {
+    setSubmitError("");
     setSentenceDrafts((prev) => {
       const current = prev[sentenceIndex];
       if (!current) return prev;
@@ -515,6 +612,7 @@ export function CustomAssignmentCreateModal({
         wordMeanings: selectedAnalyses
           .filter((w) => w.sentenceIndex === sentenceIndex)
           .map((w) => w.meaningKo),
+        idioms: getAllIdioms(),
       });
 
       return {
@@ -549,25 +647,70 @@ export function CustomAssignmentCreateModal({
     [typeOn],
   );
 
+  const hasWordType = useMemo(
+    () =>
+      activeTypes.some(
+        (id) =>
+          CUSTOM_PROBLEM_TYPE_OPTIONS.find((t) => t.id === id)?.category ===
+          "word",
+      ),
+    [activeTypes],
+  );
+
+  const hasSentenceType = useMemo(
+    () =>
+      activeTypes.some(
+        (id) =>
+          CUSTOM_PROBLEM_TYPE_OPTIONS.find((t) => t.id === id)?.category ===
+          "sentence",
+      ),
+    [activeTypes],
+  );
+
   const readyForClasses = useMemo(() => {
     if (activeTypes.length === 0) return false;
-    const hasWordType = activeTypes.some(
-      (id) =>
-        CUSTOM_PROBLEM_TYPE_OPTIONS.find((t) => t.id === id)?.category ===
-        "word",
-    );
-    const hasSentenceType = activeTypes.some(
-      (id) =>
-        CUSTOM_PROBLEM_TYPE_OPTIONS.find((t) => t.id === id)?.category ===
-        "sentence",
-    );
     if (hasWordType && selectedAnalyses.length === 0) return false;
     if (hasSentenceType && sentenceRows.length === 0) return false;
     return true;
-  }, [activeTypes, selectedAnalyses.length, sentenceRows.length]);
+  }, [
+    activeTypes.length,
+    hasWordType,
+    hasSentenceType,
+    selectedAnalyses.length,
+    sentenceRows.length,
+  ]);
+
+  const needsEditReason = useMemo(
+    () =>
+      getNeedsEditReason({
+        hasWordType,
+        hasSentenceType,
+        requireChunksEn: typeOn.chunk,
+        requireChunksKo: typeOn.translate,
+        selectedIds,
+        analyses,
+        loadingIds,
+        errors,
+        sentenceRows,
+      }),
+    [
+      hasWordType,
+      hasSentenceType,
+      typeOn.chunk,
+      typeOn.translate,
+      selectedIds,
+      analyses,
+      loadingIds,
+      errors,
+      sentenceRows,
+    ],
+  );
 
   const canSubmit =
-    readyForClasses && selectedClassIds.length > 0 && !submitting;
+    readyForClasses &&
+    selectedClassIds.length > 0 &&
+    !needsEditReason &&
+    !submitting;
 
   const buildCustomDraft = (): CustomAssignmentDraft => ({
     draft,
@@ -586,6 +729,10 @@ export function CustomAssignmentCreateModal({
     setSubmitError("");
     if (!readyForClasses) {
       setSubmitError("문제 유형과 필수 단어를 확인해 주세요.");
+      return;
+    }
+    if (needsEditReason) {
+      setSubmitError(needsEditReason);
       return;
     }
     if (selectedClassIds.length === 0) {
@@ -621,7 +768,8 @@ export function CustomAssignmentCreateModal({
       customDraft,
     };
 
-    // 이미 저장해 둔 세트가 있으면 내용만 갱신 후 과제 부여
+    // 이미 저장해 둔 세트가 있으면 내용만 갱신 후 과제 부여 페이지로
+    let problemSetId: string;
     if (pendingProblemSet) {
       const next = updateProblemSet(loadProblemSets(), pendingProblemSet.id, {
         grade: input.grade,
@@ -634,18 +782,26 @@ export function CustomAssignmentCreateModal({
         hiddenFromLibrary: false,
       });
       persistProblemSets(next);
-      const updated =
-        next.find((item) => item.id === pendingProblemSet.id) ?? null;
-      setPendingInput(input);
-      setPendingProblemSet(updated);
-      setAssignOpen(true);
-      return;
+      problemSetId = pendingProblemSet.id;
+      setPendingProblemSet(
+        next.find((item) => item.id === pendingProblemSet.id) ?? null,
+      );
+    } else {
+      const created = appendProblemSet(input);
+      problemSetId = created.id;
+      setPendingProblemSet(created);
     }
 
-    const created = appendProblemSet(input);
-    setPendingInput(input);
-    setPendingProblemSet(created);
-    setAssignOpen(true);
+    saveAssignDraft({
+      v: 1,
+      source: "custom",
+      problemSetId,
+      classIds: [...selectedClassIds],
+      returnHref: "/teacher/problems/saved",
+    });
+    resetAll();
+    onClose();
+    router.push("/teacher/problems/assign");
   };
 
   if (!open) return null;
@@ -674,6 +830,21 @@ export function CustomAssignmentCreateModal({
             <p className="mt-1 text-[13px] font-medium leading-relaxed tracking-[0.01em] text-[#8B8F96]">
               영어 문장과 문장 뜻을 함께 넣고, 필수 단어를 골라 문제를 만들 수
               있어요.
+            </p>
+            <p
+              role="note"
+              className="mt-2 inline-flex max-w-full items-start gap-1.5 rounded-[8px] border border-[#FDE68A] bg-[#FFFBEB] px-2.5 py-1.5 text-[12px] font-medium leading-snug text-[#92400E]"
+            >
+              <span
+                className="mt-[1px] grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full bg-[#F59E0B] text-[9px] font-bold leading-none text-white"
+                aria-hidden
+              >
+                !
+              </span>
+              <span>
+                지금은 무료 버전 AI를 쓰고 있어요. 단어와 뜻은 한 번만 확인해
+                주세요. 오류가 많진 않아요!
+              </span>
             </p>
           </div>
           <button
@@ -774,6 +945,7 @@ export function CustomAssignmentCreateModal({
                             key={id}
                             type="button"
                             disabled={busy}
+                            aria-label={token.text}
                             onClick={() =>
                               void toggleWord(
                                 sentence,
@@ -814,9 +986,18 @@ export function CustomAssignmentCreateModal({
                 3. 단어유형 자동생성
               </p>
                 <p className="mt-1 text-[12px] font-medium text-[#9CA3AF]">
-                  선택한 단어는 동사원형(기본형)으로 자동 변환돼요. 뜻·예문은
-                  표에서 바로 고칠 수 있어요.
+                  선택한 단어는 동사원형(기본형)으로 자동 변환돼요. 뜻은
+                  Wiktionary 한국어 뜻을 문장 뜻과 맞춰 고르고, 없으면 로컬
+                  사전·번역으로 보완해요. 칩에 마우스를 올리면 전체 뜻 목록이
+                  보여요. 표에서 바로 고칠 수 있어요.
                 </p>
+
+                {reviewCount > 0 ? (
+                  <p className="mt-2 rounded-[8px] border border-[#F5C26B] bg-[#FFFBF2] px-3 py-2 text-[12px] font-semibold text-[#B4791B]">
+                    ⚠ 예문과 뜻을 맞추지 못한 단어가 {reviewCount}개예요. 대표
+                    뜻을 넣어 뒀으니 노란 칸을 확인하고 고쳐 주세요.
+                  </p>
+                ) : null}
 
               {(loadingIds.length > 0 || Object.keys(errors).length > 0) && (
                 <div className="mt-3 space-y-2">
@@ -932,8 +1113,46 @@ export function CustomAssignmentCreateModal({
                                     meaningKo: event.target.value,
                                   })
                                 }
-                                className="h-9 w-full rounded-[8px] border border-transparent bg-transparent px-2 text-[13px] font-medium text-[#15171A] outline-none hover:border-[#E5E7EB] focus:border-[#1AA7F2] focus:bg-white"
+                                className={`h-9 w-full rounded-[8px] border bg-transparent px-2 text-[13px] font-medium text-[#15171A] outline-none focus:border-[#1AA7F2] focus:bg-white ${
+                                  analysis.needsReview
+                                    ? "border-[#F5C26B] bg-[#FFFBF2]"
+                                    : "border-transparent hover:border-[#E5E7EB]"
+                                }`}
                               />
+                              {analysis.needsReview ? (
+                                <div className="mt-1 px-1">
+                                  <p className="flex items-center gap-1 text-[10px] font-semibold text-[#B4791B]">
+                                    <span aria-hidden>⚠</span>
+                                    예문과 못 맞춰서 대표 뜻이에요 · 확인해 주세요
+                                  </p>
+                                  {analysis.candidates &&
+                                  analysis.candidates.length > 1 ? (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      {analysis.candidates.map((candidate) => (
+                                        <button
+                                          key={candidate}
+                                          type="button"
+                                          aria-label={
+                                            candidate === analysis.meaningKo
+                                              ? `뜻을 ${candidate}로 확정하기`
+                                              : `뜻을 ${candidate}로 바꾸기`
+                                          }
+                                          onClick={() =>
+                                            confirmMeaning(id, candidate)
+                                          }
+                                          className={`rounded-[6px] border px-1.5 py-0.5 text-[11px] font-medium ${
+                                            candidate === analysis.meaningKo
+                                              ? "border-[#1AA7F2] bg-[#E0F2FE] text-[#1274A9]"
+                                              : "border-[#E5E7EB] bg-white text-[#4B5563] hover:border-[#1AA7F2] hover:text-[#1274A9]"
+                                          }`}
+                                        >
+                                          {candidate}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="align-top px-2 py-2">
                               <textarea
@@ -1199,9 +1418,9 @@ export function CustomAssignmentCreateModal({
         </div>
 
         <div className="flex shrink-0 flex-col gap-2 border-t border-[#F0F1F3] px-6 py-4">
-          {submitError ? (
+          {needsEditReason || submitError ? (
             <p className="text-right text-[13px] font-medium text-[#DC2626]">
-              {submitError}
+              {needsEditReason || submitError}
             </p>
           ) : null}
           <div className="flex justify-end gap-2">
@@ -1228,64 +1447,6 @@ export function CustomAssignmentCreateModal({
           </div>
         </div>
       </div>
-
-      {assignOpen ? (
-        <AssignAssignmentModal
-          open={assignOpen}
-          classes={classes}
-          classIds={pendingInput?.assignedClassIds ?? selectedClassIds}
-          overlayClassName="z-[100]"
-          onClose={() => {
-            if (submitting) return;
-            setAssignOpen(false);
-            // 세트는 「사용자 지정 과제 제출」에 이미 저장됨 · 과제 부여만 취소
-          }}
-          onConfirm={(draftAssignments: CreateClassAssignmentInput[]) => {
-            if (!pendingProblemSet) return;
-            setSubmitting(true);
-            void (async () => {
-              try {
-                const problemSetId = pendingProblemSet.id;
-                const nextAssignments = upsertAssignmentsForProblemSet(
-                  problemSetId,
-                  draftAssignments.map((item) => ({
-                    ...item,
-                    problemSetId,
-                  })),
-                );
-                const assignedClassIds = draftAssignments.map(
-                  (item) => item.classId,
-                );
-                const nextSets = updateProblemSet(
-                  loadProblemSets(),
-                  problemSetId,
-                  { assignedClassIds },
-                );
-                persistProblemSets(nextSets);
-                const problemSet =
-                  nextSets.find((item) => item.id === problemSetId) ??
-                  pendingProblemSet;
-                await publishProblemSetAndAssignments({
-                  problemSet,
-                  assignments: nextAssignments.filter(
-                    (item) => item.problemSetId === problemSetId,
-                  ),
-                });
-                setAssignOpen(false);
-                setPendingInput(null);
-                setPendingProblemSet(null);
-                setSubmitting(false);
-                resetAll();
-                onClose();
-              } catch {
-                setSubmitting(false);
-                setSubmitError("저장하지 못했어요. 다시 시도해 주세요.");
-                setAssignOpen(false);
-              }
-            })();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

@@ -4,6 +4,12 @@ import os from "os";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 
+// 앱의 「자동 나눔」과 **같은 규칙**으로 청크를 만든다 (로직 이중화 방지).
+// phrase-chunks.ts는 이 용도 때문에 의존성이 없다 — `@/…` 별칭을 넣지 말 것.
+// Node 22.18+/24는 .ts를 타입 스트리핑으로 바로 읽는다.
+const { splitEnglishChunksPhrase, splitKoreanChunksPhrase, formatChunkLine } =
+  await import("../loopin-web/src/lib/ai/phrase-chunks.ts");
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const xlsxPath = process.argv[2];
 const outPath =
@@ -52,12 +58,14 @@ function parseSheet(xml, shared) {
   while ((rm = rowRe.exec(xml))) {
     const map = {};
     let max = -1;
-    const cRe = /<c r="([A-Z]+)(\d+)"([^>]*)>([\s\S]*?)<\/c>/g;
+    // 빈 셀은 `<c r="B3" s="1"/>`처럼 self-closing으로 나온다.
+    // `</c>`를 강제하면 그 뒤 셀들을 통째로 삼켜 열이 밀리므로 두 형태를 모두 받는다.
+    const cRe = /<c r="([A-Z]+)(\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
     let cm;
     while ((cm = cRe.exec(rm[1]))) {
       const col = colToIndex(cm[1]);
       const attrs = cm[3];
-      const inner = cm[4];
+      const inner = cm[4] ?? "";
       let val = "";
       const v = inner.match(/<v>([\s\S]*?)<\/v>/);
       if (v) {
@@ -94,6 +102,17 @@ function sheetUnitToUi(v) {
   const n = Math.round(Number(v));
   if (!Number.isFinite(n) || n <= 0) return decodeXml(v);
   return `${n}단원`;
+}
+
+/** Excel short names → UI picker labels in NewProblemSetPanel */
+const TEXTBOOK_ALIASES = {
+  "능률(김)": "NE능률(김)",
+  "NE능률(김)": "NE능률(김)",
+};
+
+function sheetTextbookToUi(v) {
+  const raw = decodeXml(v);
+  return TEXTBOOK_ALIASES[raw] ?? raw;
 }
 
 function getSheetNames(workbookXml, relsXml) {
@@ -169,17 +188,27 @@ for (const meta of sheetMeta) {
       const english = cell(r, idx, "영어 문장");
       if (!english) return;
       const grade = sheetGradeToUi(cell(r, idx, "학년"));
-      const textbook = cell(r, idx, "교과서");
+      const textbook = sheetTextbookToUi(cell(r, idx, "교과서"));
       const unit = sheetUnitToUi(cell(r, idx, "단원"));
+      // 새 양식은 「문장 뜻」 한 칸만 받고 청크는 앱이 만든다.
+      // 구 양식(「청크(영어)」/「청크(한국어)」)도 그대로 읽어 준다.
+      const korean =
+        cell(r, idx, "문장 뜻") ||
+        cell(r, idx, "한국어 뜻") ||
+        cell(r, idx, "청크(한국어)");
+      // 청크는 루프가 끝난 뒤 한꺼번에 만든다 — 숙어 목록을 「단어」시트에서 가져와야 하는데
+      // 시트 처리 순서에 기대면 시트를 재배열했을 때 조용히 깨진다.
+      const chunksEn = cell(r, idx, "청크(영어)");
+      const chunksKo = cell(r, idx, "청크(한국어)");
       sentences.push({
         id: slug(["sent", grade, textbook, unit, String(i + 1)]),
         textbook,
         grade,
         unit,
         english,
-        korean: cell(r, idx, "청크(한국어)"),
-        chunksEn: cell(r, idx, "청크(영어)"),
-        chunksKo: cell(r, idx, "청크(한국어)"),
+        korean,
+        chunksEn,
+        chunksKo,
         wrongChunks: cell(r, idx, "오답 청크"),
         hint: cell(r, idx, "힌트"),
       });
@@ -192,15 +221,18 @@ for (const meta of sheetMeta) {
       const english = cell(r, idx, "영어 문장");
       if (!english) return;
       const grade = sheetGradeToUi(cell(r, idx, "학년"));
-      const textbook = cell(r, idx, "교과서");
+      const textbook = sheetTextbookToUi(cell(r, idx, "교과서"));
       const unit = sheetUnitToUi(cell(r, idx, "단원"));
+      // Newer templates use single 「분류」; older ones use 대분류/소분류/번호/대표여부
+      const major =
+        cell(r, idx, "대분류") || cell(r, idx, "분류");
       grammar.push({
         id: slug(["gram", grade, textbook, unit, String(i + 1)]),
         textbook,
         grade,
         unit,
         no: cell(r, idx, "번호"),
-        major: cell(r, idx, "대분류"),
+        major,
         minor: cell(r, idx, "소분류"),
         representative: cell(r, idx, "대표여부"),
         english,
@@ -214,21 +246,26 @@ for (const meta of sheetMeta) {
     continue;
   }
 
+  // 현재 양식은 「단어(데모)」·「문장」·「문법」 3개 시트 체제다.
+  // (구 「단어」 시트는 2026-08 폐기 — 이름에 '단어'가 들어가면 여기로 들어온다)
   if (meta.name.includes("단어")) {
-    if (meta.hidden) continue; // 숨김 「단어」시트는 초안/깨진 행이 많아 스킵
+    if (meta.hidden) continue; // 숨김 시트는 초안이 많아 스킵
     let lastTextbook = "";
     let lastGrade = "";
     let lastUnit = "";
     let lastCategory = "";
     dataRows.forEach((r, i) => {
       const english = cell(r, idx, "영어");
-      if (!english) return;
+      // 시트 아래쪽 「양식 샘플」행은 영어 칸에 O/X 같은 값만 있고 한글이 비어 있다.
+      // 뜻 없는 행은 단어로 쓸 수 없으므로 둘 다 있는 행만 받는다.
+      const korean = cell(r, idx, "한글");
+      if (!english || !korean) return;
       lastTextbook = fillDown(lastTextbook, cell(r, idx, "교과서"));
       lastGrade = fillDown(lastGrade, cell(r, idx, "학년"));
       lastUnit = fillDown(lastUnit, cell(r, idx, "단원"));
       lastCategory = fillDown(lastCategory, cell(r, idx, "유형"));
       const grade = sheetGradeToUi(lastGrade);
-      const textbook = lastTextbook;
+      const textbook = sheetTextbookToUi(lastTextbook);
       const unit = sheetUnitToUi(lastUnit);
       if (!/^중[123]$/.test(grade) || !textbook || !/^\d+단원$/.test(unit)) {
         return;
@@ -241,9 +278,11 @@ for (const meta of sheetMeta) {
         category: lastCategory,
         isBasicWord: cell(r, idx, "기초단어 여부").toLowerCase() === "o",
         english,
-        korean: cell(r, idx, "한글"),
-        exampleEn: cell(r, idx, "교과서 예문"),
-        exampleKo: cell(r, idx, "한국어 뜻"),
+        korean,
+        // 예문은 이제 교과서 원문이 아니라 자체 창작이라 「예문」 열을 우선 읽는다.
+        // 열 이름을 아직 안 바꿨어도 되도록 구 이름(「교과서 예문」)도 그대로 받는다.
+        exampleEn: cell(r, idx, "예문") || cell(r, idx, "교과서 예문"),
+        exampleKo: cell(r, idx, "예문 뜻") || cell(r, idx, "한국어 뜻"),
       };
       const key = wordKey(item);
       if (seenWords.has(key)) {
@@ -259,6 +298,38 @@ for (const meta of sheetMeta) {
       seenWords.add(key);
       words.push(item);
     });
+  }
+}
+
+/**
+ * 비어 있는 청크를 채운다. 영어 청크는 같은 단원 어휘 중 여러 단어짜리 항목
+ * (`be related to`, `On the other hand`)을 숙어로 넘겨 쪼개지지 않게 한다.
+ */
+function fillMissingChunks(sentenceList, wordList) {
+  const idiomsByScope = new Map();
+  for (const word of wordList) {
+    const english = (word.english ?? "").trim();
+    if (!/\s/.test(english)) continue;
+    const key = `${word.grade}|${word.textbook}|${word.unit}`;
+    if (!idiomsByScope.has(key)) idiomsByScope.set(key, []);
+    idiomsByScope.get(key).push(english);
+  }
+
+  for (const sentence of sentenceList) {
+    const idioms =
+      idiomsByScope.get(
+        `${sentence.grade}|${sentence.textbook}|${sentence.unit}`
+      ) ?? [];
+    if (!sentence.chunksEn) {
+      sentence.chunksEn = formatChunkLine(
+        splitEnglishChunksPhrase(sentence.english, idioms)
+      );
+    }
+    if (!sentence.chunksKo) {
+      sentence.chunksKo = formatChunkLine(
+        splitKoreanChunksPhrase(sentence.korean)
+      );
+    }
   }
 }
 
@@ -291,6 +362,8 @@ if (fs.existsSync(outPath)) {
     existing = { words: [], sentences: [], grammar: [] };
   }
 }
+
+fillMissingChunks(sentences, words);
 
 const result = {
   words: mergeByScope(existing.words, words),

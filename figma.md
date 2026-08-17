@@ -86,6 +86,7 @@ assets/
 | **내 설정** | `my-settings.svg` | `/teacher/settings` | 사이드바 하단 **설정** · 본문만(1153×973) · 공통 사이드바 오른쪽에 배치 |
 | **칭찬 캘린더 예시** | `praise-calendar-example.svg` | `/teacher/settings` (칭찬 캘린더 **?** 호버) | 학생 앱 칭찬 캘린더 화면 · **수정 없이** 축소 팝오버 |
 | **문제 관리 목록** | `problems-list.svg` | `/teacher/problems` | 사이드바 **문제 관리** |
+| **파트별 부여** (과제 부여 좌측) | `part-assign-sidebar.svg` | `/teacher/problems/assign` | 참고 시안 · 실제 UI는 `AssignAssignmentModal` 왼쪽 트레이 |
 
 `/` → `/teacher` 로 리다이렉트.
 

@@ -24,6 +24,7 @@
 | `/teacher/classes/:id` | **반 홈** (학급 상세, `?tab=`로 과제/학생/설정) | Teacher | Y | 교사 | P0 | **구현됨** (class-home.svg, 중1 영어) |
 | `/teacher/problems` | **문제 제출** (문제 관리 기본) | Teacher | Y | 교사 | P0 | **구현됨** (problems-list.svg) — 실질적인 과제 출제 화면. 아래 `/teacher/assignments/new`를 대체함 |
 | `/teacher/problems/saved` | 사용자 지정 과제 제출 | Teacher | Y | 교사 | P0 | **구현됨** |
+| `/teacher/vocab` | **단어장 만들기** (부가기능) | Teacher | Y | 교사 | P1 | **구현됨** (엑셀 복붙 · 짝맞추기/퀴즈 연습) |
 | `/teacher/assignments/new` | ~~과제 만들기~~ | Teacher | Y | 교사 | P0 | **대체됨** → `/teacher/problems`(출제) + `/teacher/classes/:id?tab=assignments`(현황)로 구현됨. 원래 계획한 이 URL은 쓰지 않음 |
 | `/teacher/assignments/:id` | ~~과제 상세~~ | Teacher | Y | 교사 | P0 | **대체됨** → `/teacher/classes/:id?tab=assignments`로 구현됨. 원래 계획한 이 URL은 쓰지 않음 |
 | `/teacher/settings` | **내 설정** | Teacher | Y | 교사 | P1 | **구현됨** (`my-settings.svg` · 사이드바 「설정」) |

@@ -127,22 +127,40 @@ export function CalendarEventsOverlay({
   const frameRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  /*
+    드래그 핸들러가 **항상 최신 값**을 보게 하려고 ref에 담아 둔다.
+    핸들러를 의존성에 넣으면 값이 바뀔 때마다 포인터 구독을 다시 걸어야 해서
+    드래그 도중에 끊긴다.
+
+    갱신은 **렌더가 아니라 커밋 뒤**에 한다. 렌더 중에 ref를 쓰면, 버려지는 렌더가
+    남긴 값이 그대로 남을 수 있다(React가 렌더를 중단·재시도할 수 있다).
+    이 ref들은 포인터 이벤트에서만 읽으므로 커밋 뒤 갱신으로 충분하다.
+  */
   const classesRef = useRef(classes);
-  classesRef.current = classes;
   const weekMondayRef = useRef(weekMonday);
-  weekMondayRef.current = weekMonday;
   const onMoveClassRef = useRef(onMoveClass);
-  onMoveClassRef.current = onMoveClass;
   const onMoveOneOffRef = useRef(onMoveOneOff);
-  onMoveOneOffRef.current = onMoveOneOff;
   const onEditLessonRef = useRef(onEditLesson);
-  onEditLessonRef.current = onEditLesson;
   const onEmptySlotRef = useRef(onEmptySlot);
-  onEmptySlotRef.current = onEmptySlot;
+  useEffect(() => {
+    classesRef.current = classes;
+    weekMondayRef.current = weekMonday;
+    onMoveClassRef.current = onMoveClass;
+    onMoveOneOffRef.current = onMoveOneOff;
+    onEditLessonRef.current = onEditLesson;
+    onEmptySlotRef.current = onEmptySlot;
+  });
   const longPressTimerRef = useRef<number | null>(null);
 
   const [drag, setDrag] = useState<DragState | null>(null);
-  dragRef.current = drag;
+  /*
+    드래그 상태를 ref에도 비춰 둔다. 포인터 핸들러는 재구독 없이 최신 값을 봐야 한다.
+    핸들러는 필요할 때 `dragRef.current`를 직접 쓰고(아래 261·298행), 여기서는
+    **커밋 뒤에** 상태와 다시 맞춘다 — 렌더 중에 쓰면 버려진 렌더의 값이 남는다.
+  */
+  useEffect(() => {
+    dragRef.current = drag;
+  }, [drag]);
   const now = useNow();
 
   const events = useMemo(() => {
@@ -569,11 +587,14 @@ function CalendarNowIndicator({
   gridW: number;
 }) {
   const badgeLeft = Math.max(0, gutterW - 42);
+  /** CAL_GRID 소수 좌표 합의 float 노이즈(예: 1008.1600000000001) 제거 */
+  const lineTop = Math.round(top);
+  const lineWidth = Math.round(gutterW + gridW);
 
   return (
     <div
       className="pointer-events-none absolute left-0 z-[25]"
-      style={{ top, width: gutterW + gridW, height: 0 }}
+      style={{ top: lineTop, width: lineWidth, height: 0 }}
       aria-hidden
     >
       <span

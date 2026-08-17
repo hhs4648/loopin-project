@@ -1,5 +1,7 @@
 "use client";
 
+import { Suspense } from "react";
+
 import {
   PROBLEMS_PAGE_LAYOUT,
   ProblemsCreateForm,
@@ -72,7 +74,10 @@ export function ProblemsManagementOverlay({
         </header>
 
         {view === "submit" ? (
-          <ProblemsCreateForm svg={newProblemSetSvg} />
+          // 「이어서 내기」 프리셋을 읽으려고 useSearchParams를 쓰므로 경계가 필요하다
+          <Suspense fallback={null}>
+            <ProblemsCreateForm svg={newProblemSetSvg} />
+          </Suspense>
         ) : (
           <SavedProblemSetsPanel />
         )}

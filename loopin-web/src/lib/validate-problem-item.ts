@@ -1,8 +1,8 @@
 import {
-  splitEnglishChunks,
-  splitKoreanChunks,
-  stripBrackets,
-} from "@/lib/problem-bank";
+  splitEnglishChunksPhrase,
+  splitKoreanChunksPhrase,
+} from "@/lib/ai/phrase-chunks";
+import { stripBrackets } from "@/lib/problem-bank";
 
 export type AddProblemKind = "word" | "sentence" | "grammar";
 
@@ -66,10 +66,10 @@ export function validateProblemItemInput(input: {
     const chunksKoRaw = (input.chunksKo ?? "").trim();
     const enParts = chunksEnRaw
       ? parseSlashParts(chunksEnRaw)
-      : splitEnglishChunks(en);
+      : splitEnglishChunksPhrase(en);
     const koParts = chunksKoRaw
       ? parseSlashParts(chunksKoRaw)
-      : splitKoreanChunks(ko);
+      : splitKoreanChunksPhrase(ko);
 
     if (chunksEnRaw && !chunksEnRaw.includes("/") && enParts.length < 2) {
       return "영어 청크는 `/`로 구분해 주세요. 또는 「자동 나눔」을 눌러 주세요.";
@@ -103,11 +103,9 @@ export function validateProblemItemInput(input: {
     if (choiceParts.length === 0) {
       return "선택지를 입력해 주세요. 첫 항목이 정답이며 `/`로 구분해요.";
     }
-    if (choiceParts.length < 2) {
-      return "선택지는 2~3개를 `/`로 구분해 주세요. (첫 항목이 정답)";
-    }
-    if (choiceParts.length > 3) {
-      return "선택지는 최대 3개까지 `/`로 구분해 주세요.";
+    // 교정 문제는 3지선다 고정 — 학생앱 buildOxXCorrection이 3개 미만이면 교정 단계를 만들지 않는다.
+    if (choiceParts.length !== 3) {
+      return "선택지는 3개를 `/`로 구분해 주세요. (첫 항목이 정답)";
     }
   }
   return null;

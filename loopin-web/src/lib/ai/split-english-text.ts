@@ -1,3 +1,6 @@
+import { lookupIdiomMeaning } from "@/lib/ai/idiom-meanings";
+import { findIdiomSpans } from "@/lib/ai/phrase-chunks";
+
 export type SentenceToken =
   | { kind: "word"; text: string; wordIndex: number }
   | { kind: "gap"; text: string };
@@ -36,30 +39,68 @@ export function splitIntoMeaningSentences(raw: string): string[] {
 
 const WORD_RE = /^[A-Za-z]+(?:'[A-Za-z]+)?$/;
 
-/** 한 문장을 클릭 가능한 단어 + 구두점/공백 토큰으로 분리 */
-export function tokenizeSentence(sentence: string): SentenceToken[] {
-  const chunks = sentence.split(/(\s+|[^\w\s']+)/);
+/**
+ * 한 문장을 클릭 가능한 단어 + 구두점/공백 토큰으로 분리.
+ *
+ * @param idioms 한 단어처럼 다뤄야 할 숙어. 넘기면 `look at`, `do your best`가
+ *   따로따로가 아니라 **하나의 클릭 단위**가 된다. 청크 나눔과 같은 인식기를 쓴다.
+ */
+export function tokenizeSentence(
+  sentence: string,
+  idioms: string[] = [],
+): SentenceToken[] {
   const tokens: SentenceToken[] = [];
   let wordIndex = 0;
 
-  for (const chunk of chunks) {
-    if (!chunk) continue;
-    if (WORD_RE.test(chunk)) {
-      tokens.push({ kind: "word", text: chunk, wordIndex });
-      wordIndex += 1;
-    } else {
-      tokens.push({ kind: "gap", text: chunk });
+  const pushPlain = (text: string) => {
+    for (const chunk of text.split(/(\s+|[^\w\s']+)/)) {
+      if (!chunk) continue;
+      if (WORD_RE.test(chunk)) {
+        tokens.push({ kind: "word", text: chunk, wordIndex });
+        wordIndex += 1;
+      } else {
+        tokens.push({ kind: "gap", text: chunk });
+      }
     }
+  };
+
+  // `findIdiomSpans`는 **청크를 예쁘게 자르려고** 만든 것이라 `during the`,
+  // `have been`, `there is` 같은 문법 덩어리까지 묶는다. 그건 청크엔 맞지만
+  // 클릭 단위로는 틀렸다 — 어휘가 아니기 때문이다.
+  // 그래서 토큰화에서는 **사전에 실린 숙어이거나 단원 어휘인 것만** 한 덩어리로 둔다.
+  const unitVocabulary = new Set(
+    idioms.map((phrase) => phrase.trim().toLowerCase()).filter(Boolean),
+  );
+  const isVocabulary = (text: string) =>
+    lookupIdiomMeaning(text) !== null ||
+    unitVocabulary.has(text.trim().toLowerCase());
+
+  let cursor = 0;
+  for (const span of findIdiomSpans(sentence, idioms).filter((s) =>
+    isVocabulary(s.text),
+  )) {
+    if (span.start > cursor) pushPlain(sentence.slice(cursor, span.start));
+    tokens.push({
+      kind: "word",
+      text: sentence.slice(span.start, span.end),
+      wordIndex,
+    });
+    wordIndex += 1;
+    cursor = span.end;
   }
+  if (cursor < sentence.length) pushPlain(sentence.slice(cursor));
 
   return tokens;
 }
 
-export function parseEnglishPassage(raw: string): ParsedSentence[] {
+export function parseEnglishPassage(
+  raw: string,
+  idioms: string[] = [],
+): ParsedSentence[] {
   return splitIntoSentences(raw).map((text, index) => ({
     index,
     text,
-    tokens: tokenizeSentence(text),
+    tokens: tokenizeSentence(text, idioms),
   }));
 }
 

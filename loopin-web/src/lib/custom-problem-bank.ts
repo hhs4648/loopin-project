@@ -1,3 +1,8 @@
+import {
+  formatChunkLine,
+  splitEnglishChunksPhrase,
+  splitKoreanChunksPhrase,
+} from "@/lib/ai/phrase-chunks";
 import type {
   ProblemGrammar,
   ProblemSentence,
@@ -137,18 +142,13 @@ function buildSentence(
 ): ProblemSentence {
   const english = input.english.trim();
   const korean = input.korean.trim();
+  // 교사가 청크를 비워 두면 「자동 나눔」과 같은 규칙으로 채운다 (어절 단위로 쪼개지 않음)
   const chunksEn =
     (input.chunksEn ?? "").trim() ||
-    english
-      .split(/\s+/)
-      .filter(Boolean)
-      .join(" / ");
+    formatChunkLine(splitEnglishChunksPhrase(english));
   const chunksKo =
     (input.chunksKo ?? "").trim() ||
-    korean
-      .split(/\s+/)
-      .filter(Boolean)
-      .join(" / ");
+    formatChunkLine(splitKoreanChunksPhrase(korean));
   return {
     id,
     textbook: input.textbook,

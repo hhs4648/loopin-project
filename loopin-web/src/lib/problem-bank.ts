@@ -99,6 +99,33 @@ export function getUnitContent(query: ProblemBankQuery) {
   };
 }
 
+/**
+ * 해당 단원 어휘 중 **여러 단어짜리 항목**(`be related to`, `On the other hand`).
+ * 청크 자동 나눔에 넘기면 그 단원에서만 쓰는 숙어까지 쪼개지지 않는다.
+ * 교사가 직접 추가한 단어도 포함된다.
+ */
+export function getUnitIdioms(query: ProblemBankQuery): string[] {
+  return getUnitContent(query)
+    .words.map((word) => word.english.trim())
+    .filter((english) => /\s/.test(english));
+}
+
+/**
+ * 단원 구분 없이 알고 있는 숙어 전부.
+ * 사용자 지정 과제처럼 교과서 단원이 정해지지 않은 흐름에서 쓴다.
+ */
+export function getAllIdioms(): string[] {
+  const custom = loadCustomProblemBank();
+  const all = [...(data.words ?? data.items ?? []), ...custom.words];
+  return [
+    ...new Set(
+      all
+        .map((word) => word.english.trim())
+        .filter((english) => /\s/.test(english)),
+    ),
+  ];
+}
+
 /** @deprecated use getUnitContent */
 export type ProblemBankItem = ProblemWord;
 

@@ -4,50 +4,48 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { CLASS_LAYOUT } from "@/lib/class-layout";
+import {
+  formatOpenAtKo,
+  isScheduledForLater,
+} from "@/lib/assignment-open-at";
 import type { ClassStudent } from "@/lib/class-students";
 import { AlertBadgeIcon } from "@/components/teacher/AlertBadgeIcon";
-import { AssignAssignmentModal } from "@/components/teacher/AssignAssignmentModal";
+import { ReissueWrongAnswersModal } from "@/components/teacher/ReissueWrongAnswersModal";
 import {
   formatAssignmentPeriod,
   formatAssignmentSchedule,
   formatLessonDateKo,
+  hasAssignmentDeadline,
   loadClassAssignments,
-  removeAssignmentById,
+  removeAssignmentsByIds,
   saveClassAssignments,
-  upsertAssignmentsForProblemSet,
   type AssignedProblemView,
   type ClassAssignment,
-  type CreateClassAssignmentInput,
 } from "@/lib/class-assignments";
 import { stripBrackets } from "@/lib/problem-bank";
 import {
-  appendProblemSet,
   loadProblemSets,
   persistProblemSets,
   problemSetItemCount,
   problemSetItemSummary,
+  problemSetPartLabel,
   updateProblemSet,
   type SavedProblemSet,
 } from "@/lib/problem-sets";
-import {
-  buildReissueProblemSetInput,
-  reissueProblemSetTitle,
-} from "@/lib/reissue-wrong-problems";
 import { buildContentSnapshot } from "@/lib/sync/content-snapshot";
 import {
   deleteClassAssignmentRemote,
   fetchQuestionDetailStats,
   fetchQuestionStats,
   fetchWrongAnswersForStudent,
-  publishProblemSetAndAssignments,
 } from "@/lib/sync/teacher-sync";
 import type {
   QuestionDetailStats,
   QuestionStat,
   StudentProgressRow,
 } from "@/lib/sync/types";
-import { loadTeacherClasses, type TeacherClass } from "@/lib/teacher-classes";
 import { loadTeacherProfile } from "@/lib/teacher-profile";
+import type { TeacherClass } from "@/lib/teacher-classes";
 import { WrongAnswerPrintModal } from "@/components/teacher/WrongAnswerPrintModal";
 import {
   buildWrongAnswerWorksheet,
@@ -174,9 +172,42 @@ type ClassAssignmentsPanelProps = {
   progressRefreshKey?: number;
   classLabel?: string;
   teacherName?: string;
+  /** 반 정보(호출부 호환용 — 오답 재출제는 마감을 쓰지 않음) */
+  teacherClass?: TeacherClass | null;
 };
 
 type StudentProgressFilter = "all" | "idle" | "in_progress" | "completed";
+
+/**
+ * 오답 재출제 전용 필터.
+ *
+ * 재출제 과제는 **그 학생이 틀렸던 문항만** 담겨 있다. 그래서 선생님이 궁금한 건
+ * 「진행중이냐」가 아니라 **「틀린 걸 고쳤냐」** 다 — 전부 정답이면 「만점」이다.
+ * 그래서 반 전체 과제의 진행 단계 칩(미학습·진행중·완료)을 이 축으로 갈아끼운다.
+ */
+type ReissueProgressFilter = "all" | "unsubmitted" | "still-wrong" | "fixed";
+
+/**
+ * 재출제에서 이 학생이 어디에 속하는지.
+ *
+ * **점수(%)가 아니라 맞은 개수로 판정한다.** 점수는 반올림된 값이라 96%가 100처럼 보이거나
+ * 그 반대가 생긴다 — 실제로 「보완 필요인데 정답 7/7」로 표시가 어긋난 적이 있다(2026-08-09).
+ * 표의 개수와 배지가 **같은 값**에서 나와야 절대 모순되지 않는다.
+ */
+function resolveReissueOutcome(
+  row: StudentProgressRow,
+): Exclude<ReissueProgressFilter, "all"> {
+  // 아직 결과가 없는 상태(미학습·푸는 중)는 한 칸으로 묶는다 — 둘 다 「아직 안 냄」이다
+  if (row.status !== "completed") return "unsubmitted";
+  const answered = row.latestAnsweredCount;
+  const correct = row.latestCorrectCount;
+  if (answered != null && correct != null && answered > 0) {
+    // 재출제는 틀렸던 것만 모아 놓았으므로 **하나도 안 틀려야** 다 고친 것
+    return correct >= answered ? "fixed" : "still-wrong";
+  }
+  // 개수가 없는 옛 기록만 점수로 판정 (100점 미만이면 남은 오답이 있다)
+  return (row.latestScore ?? 0) >= 100 ? "fixed" : "still-wrong";
+}
 
 function statusBadge(status: StudentProgressRow["status"]) {
   if (status === "completed") {
@@ -200,8 +231,54 @@ function statusBadge(status: StudentProgressRow["status"]) {
   };
 }
 
+/**
+ * 재출제 표의 「결과」 배지 — 진행 단계가 아니라 **오답을 고쳤는지**를 보여준다.
+ * 칩(`reissueChips`)과 같은 구분·같은 색을 쓴다.
+ */
+function reissueOutcomeBadge(row: StudentProgressRow) {
+  const outcome = resolveReissueOutcome(row);
+  if (outcome === "fixed") {
+    return {
+      label: "만점",
+      className: "bg-[#E8F8EF] text-[#047857]",
+      dot: "#10B981",
+    };
+  }
+  if (outcome === "still-wrong") {
+    return {
+      label: "보완 필요",
+      className: "bg-[#FEE7E7] text-[#C52B2B]",
+      dot: "#EF4444",
+    };
+  }
+  return {
+    label: "미제출",
+    className: "bg-[#F3F4F6] text-[#4B5563]",
+    dot: "#9CA3AF",
+  };
+}
+
+/** 과제 탭 드롭다운용 — 학년·교과서는 반이 같아 생략 */
 function assignmentPickerLabel(problemSet: SavedProblemSet): string {
-  return `${problemSet.title} · ${problemSetItemCount(problemSet)}문제`;
+  const unit = problemSet.unit
+    .replace(/\s·\s오답(?:\s.*)?$/, "")
+    .replace(/\.오답문제$/, "")
+    .trim();
+  const part = problemSetPartLabel(problemSet.part);
+  const count = `${problemSetItemCount(problemSet)}문제`;
+  const segments = [unit || problemSet.unit, ...(part ? [part] : []), count];
+  return segments.filter(Boolean).join(" · ");
+}
+
+function resolveTargetStudentLabel(
+  assignment: ClassAssignment,
+  students: ClassStudent[],
+): string | null {
+  if (!assignment.targetStudentId) return null;
+  const name = students.find(
+    (student) => student.id === assignment.targetStudentId,
+  )?.name;
+  return name?.trim() || "개인";
 }
 
 /** 반 학생이 1명 이상이고 모두 완료일 때만 true */
@@ -232,6 +309,7 @@ export function ClassAssignmentsPanel({
   progressRefreshKey = 0,
   classLabel = "우리 반",
   teacherName,
+  teacherClass = null,
 }: ClassAssignmentsPanelProps) {
   const left = CLASS_LAYOUT.contentLeft;
   const width = CLASS_LAYOUT.contentRight - left;
@@ -245,6 +323,8 @@ export function ClassAssignmentsPanel({
   const [studentQuery, setStudentQuery] = useState("");
   const [studentFilter, setStudentFilter] =
     useState<StudentProgressFilter>("all");
+  const [reissueFilter, setReissueFilter] =
+    useState<ReissueProgressFilter>("all");
   const [deletingAssignment, setDeletingAssignment] =
     useState<AssignedProblemView | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
@@ -270,26 +350,57 @@ export function ClassAssignmentsPanel({
   useEffect(() => {
     setStudentQuery("");
     setStudentFilter("all");
+    // 재출제 칩은 별도 상태라 같이 풀어 준다 — 안 그러면 「보완 필요」가 걸린 채
+    // 다른 과제로 넘어가 학생이 없는 것처럼 보인다
+    setReissueFilter("all");
   }, [selectedId]);
 
   async function confirmDeleteAssignment() {
     if (!deletingAssignment) return;
-    const assignmentId = deletingAssignment.assignment.id;
+
+    /*
+      재출제는 학생 수만큼 과제가 쪼개져 있다 — 20명에게 냈으면 20개다.
+      드롭다운에는 한 줄로 접혀 보이므로, 취소도 **묶음 통째로** 해야 한다.
+      하나만 지우면 나머지 19개가 유령처럼 남고 화면에는 안 보인다.
+    */
+    const target = deletingAssignment.assignment;
+    const batchKey = batchKeyOf(target);
+    const ids = batchKey
+      ? assignments
+          .filter((item) => batchKeyOf(item.assignment) === batchKey)
+          .map((item) => item.assignment.id)
+      : [target.id];
+
     setDeletingBusy(true);
     setDeleteError(null);
+
     // 원격 삭제가 실제로 성공한 뒤에만 로컬 목록에서 지운다 —
     // 실패했는데 화면에서만 사라지면 학생 앱 DB에는 그대로 남아 헷갈린다.
-    const result = await deleteClassAssignmentRemote(assignmentId);
-    if (!result.ok) {
+    const deleted: string[] = [];
+    for (const id of ids) {
+      const result = await deleteClassAssignmentRemote(id);
+      if (!result.ok) break;
+      deleted.push(id);
+    }
+
+    // 일부만 지워졌으면 지워진 것까지는 로컬에도 반영하고 나머지는 남긴다.
+    // 전부 실패했을 때만 아무것도 건드리지 않는다.
+    if (deleted.length > 0) {
+      saveClassAssignments(
+        removeAssignmentsByIds(loadClassAssignments(), deleted),
+      );
+    }
+
+    if (deleted.length < ids.length) {
       setDeletingBusy(false);
       setDeleteError(
-        "삭제에 실패했어요. 네트워크를 확인하고 다시 시도해 주세요.",
+        deleted.length === 0
+          ? "삭제에 실패했어요. 네트워크를 확인하고 다시 시도해 주세요."
+          : `${ids.length}명 중 ${deleted.length}명만 취소됐어요. 다시 시도해 주세요.`,
       );
       return;
     }
-    saveClassAssignments(
-      removeAssignmentById(loadClassAssignments(), assignmentId),
-    );
+
     setDeletingBusy(false);
     setDeletingAssignment(null);
   }
@@ -305,31 +416,170 @@ export function ClassAssignmentsPanel({
     setRenameOpen(false);
   }
 
+  /**
+   * 재출제 묶음의 키 — 같은 「앱에 내기」로 나간 과제들이 공유한다.
+   * `reissueBatchId`가 없는 옛 과제는 자기 id를 키로 써서 1개짜리 묶음이 된다.
+   */
+  const batchKeyOf = (assignment: ClassAssignment): string | null =>
+    assignment.targetStudentId
+      ? (assignment.reissueBatchId ?? assignment.id)
+      : null;
+
+  /**
+   * 드롭다운에 실제로 띄우는 목록 — **재출제는 묶음당 한 줄만.**
+   * 20명에게 내면 과제가 20개 생기는데 그대로 두면 같은 제목이 20줄 쌓인다.
+   * 원래 순서(최근 부여 순)를 유지하려고 앞에서부터 훑으며 첫 항목만 남긴다.
+   */
+  const pickerViews = useMemo(() => {
+    const seen = new Set<string>();
+    const out: AssignedProblemView[] = [];
+    for (const view of assignments) {
+      const key = batchKeyOf(view.assignment);
+      if (key) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+      out.push(view);
+    }
+    return out;
+  }, [assignments]);
+
+  /** 드롭다운 대표 과제 id → 그 묶음의 학생 수 (반 전체 과제는 들어가지 않는다) */
+  const batchSizeById = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const view of assignments) {
+      const key = batchKeyOf(view.assignment);
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const out: Record<string, number> = {};
+    for (const view of pickerViews) {
+      const key = batchKeyOf(view.assignment);
+      if (key) out[view.assignment.id] = counts.get(key) ?? 1;
+    }
+    return out;
+  }, [assignments, pickerViews]);
+
   const selected =
+    pickerViews.find((item) => item.assignment.id === selectedId) ??
     assignments.find((item) => item.assignment.id === selectedId) ??
-    assignments[0] ??
+    pickerViews[0] ??
     null;
   const selectedAssignment = selected?.problemSet ?? null;
   const selectedSchedule = selected?.assignment ?? null;
+  const selectedTargetLabel = selectedSchedule
+    ? resolveTargetStudentLabel(selectedSchedule, students)
+    : null;
+  /**
+   * 오답 재출제 과제 — **학생 1명 전용**이라 반 단위 지표(평균·완료 N명·필터 칩)가
+   * 전부 n=1이 되어 의미가 없다. 그래서 화면 여러 곳을 이 값으로 갈라 놓는다.
+   */
+  const isReissue = Boolean(selectedSchedule?.targetStudentId);
+
+  /**
+   * 선택된 재출제가 속한 묶음의 과제 전부 (학생 1명당 1개).
+   * 지표·학생 표는 이 묶음 전체를 합쳐서 낸다 — 그래야 「20명 중 12명 제출」이 보인다.
+   */
+  const batchViews = useMemo(() => {
+    if (!selectedSchedule) return [];
+    const key = batchKeyOf(selectedSchedule);
+    if (!key) return [];
+    return assignments.filter((item) => batchKeyOf(item.assignment) === key);
+  }, [assignments, selectedSchedule]);
+
+  /** 묶음 크기 — 1이면 개인 한 명, N이면 단체로 나간 것 */
+  const batchSize = batchViews.length;
+  /** 단체 재출제 — 학생 표·상태 칩이 다시 제 역할을 한다 */
+  const isBatchReissue = isReissue && batchSize > 1;
+  /** 오답의 출처가 된 원본 과제 — 목록에 남아 있을 때만(지웠으면 null) */
+  const sourceView = selectedSchedule?.sourceAssignmentId
+    ? (assignments.find(
+        (item) => item.assignment.id === selectedSchedule.sourceAssignmentId,
+      ) ?? null)
+    : null;
+  const assignedStudents = (() => {
+    if (!selectedSchedule?.targetStudentId) return students;
+    // 묶음 안의 대상 학생 전원 — 단체로 냈으면 20명이 다 들어온다
+    const targets = new Set(
+      batchViews.map((view) => view.assignment.targetStudentId),
+    );
+    if (targets.size === 0) targets.add(selectedSchedule.targetStudentId);
+    return students.filter((student) => targets.has(student.id));
+  })();
 
   const selectedProgress = useMemo(() => {
     if (!selected?.assignment.id) return [];
+
+    const idleRow = (student: { id: string; name: string }) => ({
+      studentId: student.id,
+      studentName: student.name,
+      status: "idle" as const,
+      progressPercent: 0,
+      latestAccuracy: null,
+      averageAccuracy: null,
+      firstScore: null,
+      latestScore: null,
+      latestCorrectCount: null,
+      latestAnsweredCount: null,
+      submittedAt: null,
+      lastLearnedAt: null,
+      studyStreakDays: 0,
+    });
+
+    // 재출제 묶음은 **과제가 학생 수만큼 쪼개져 있다** — 각 과제의 진행 행을 합쳐야
+    // 「20명 중 12명 제출」이 나온다. 과제 하나만 보면 영원히 1명짜리 표다.
+    if (batchViews.length > 0) {
+      const rows = batchViews.flatMap((view) => {
+        const targetId = view.assignment.targetStudentId;
+        const found = (progressByAssignment[view.assignment.id] ?? []).filter(
+          (row) => !targetId || row.studentId === targetId,
+        );
+        if (found.length > 0) return found;
+        const student = assignedStudents.find((item) => item.id === targetId);
+        return student ? [idleRow(student)] : [];
+      });
+      // 학생 표 정렬이 반 명단과 어긋나지 않게 맞춘다
+      const order = new Map(
+        assignedStudents.map((student, index) => [student.id, index]),
+      );
+      return rows.sort(
+        (a, b) =>
+          (order.get(a.studentId) ?? 0) - (order.get(b.studentId) ?? 0),
+      );
+    }
+
     return (
       progressByAssignment[selected.assignment.id] ??
-      students.map((student) => ({
-        studentId: student.id,
-        studentName: student.name,
-        status: "idle" as const,
-        progressPercent: 0,
-        latestAccuracy: null,
-        firstScore: null,
-        latestScore: null,
-        submittedAt: null,
-        lastLearnedAt: null,
-      }))
+      assignedStudents.map(idleRow)
     );
-  }, [progressByAssignment, selected?.assignment.id, students]);
+  }, [
+    progressByAssignment,
+    selected?.assignment.id,
+    assignedStudents,
+    batchViews,
+  ]);
 
+  /** 개인 재출제(묶음 크기 1)일 때 그 한 줄 — 지표에서 바로 쓴다 */
+  const reissueRow = isReissue ? (selectedProgress[0] ?? null) : null;
+
+  /**
+   * 단체 재출제의 「틀렸던 문항」 평균 — 학생마다 틀린 개수가 달라 합계는 의미가 없다.
+   * (원본 20문항 중 어떤 애는 3개, 어떤 애는 12개 틀린다)
+   */
+  const reissueAvgItemCount =
+    batchViews.length > 0
+      ? Math.round(
+          batchViews.reduce(
+            (sum, view) => sum + problemSetItemCount(view.problemSet),
+            0,
+          ) / batchViews.length,
+        )
+      : 0;
+
+  /**
+   * 재출제의 존재 이유는 「원본에서 틀린 걸 이번엔 맞혔나」다.
+   * 원본 과제가 목록에 남아 있고 그 학생 점수가 있으면 변화를 보여준다.
+   */
   const metrics = useMemo(() => {
     const started = selectedProgress.filter((r) => r.status !== "idle");
     const completed = selectedProgress.filter((r) => r.status === "completed");
@@ -356,7 +606,14 @@ export function ClassAssignmentsPanel({
   const visibleStudentProgress = useMemo(() => {
     const query = studentQuery.trim().toLowerCase();
     return selectedProgress.filter((row) => {
-      if (studentFilter !== "all" && row.status !== studentFilter) {
+      if (isReissue) {
+        if (
+          reissueFilter !== "all" &&
+          resolveReissueOutcome(row) !== reissueFilter
+        ) {
+          return false;
+        }
+      } else if (studentFilter !== "all" && row.status !== studentFilter) {
         return false;
       }
       if (query && !row.studentName.toLowerCase().includes(query)) {
@@ -364,7 +621,35 @@ export function ClassAssignmentsPanel({
       }
       return true;
     });
-  }, [selectedProgress, studentFilter, studentQuery]);
+  }, [selectedProgress, studentFilter, reissueFilter, isReissue, studentQuery]);
+
+  /**
+   * 재출제 대상 학생 → 그 학생이 받은 **문제집 항목 수**(= 원본에서 틀린 개수).
+   * 학생마다 다르다(3개짜리·12개짜리). 교사 로컬 데이터라 신뢰할 수 있는 값이다 —
+   * 서버의 `answered_count`와 달리 재풀이로 부풀지 않는다.
+   */
+  const reissueItemCountByStudent = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const view of batchViews) {
+      const id = view.assignment.targetStudentId;
+      if (id) out[id] = problemSetItemCount(view.problemSet);
+    }
+    return out;
+  }, [batchViews]);
+
+  /** 재출제 칩 개수 — 「고쳤나」 기준 */
+  const reissueCounts = useMemo(() => {
+    let unsubmitted = 0;
+    let stillWrong = 0;
+    let fixed = 0;
+    for (const row of selectedProgress) {
+      const outcome = resolveReissueOutcome(row);
+      if (outcome === "unsubmitted") unsubmitted += 1;
+      else if (outcome === "still-wrong") stillWrong += 1;
+      else fixed += 1;
+    }
+    return { unsubmitted, stillWrong, fixed };
+  }, [selectedProgress]);
 
   const printableStudents = useMemo(
     () => selectedProgress.filter((row) => row.status !== "idle"),
@@ -413,42 +698,32 @@ export function ClassAssignmentsPanel({
     }
   }
 
-  function startReissueWrongProblems(selectedIds: string[]) {
+  function openReissueWrongModal(filterIds?: string[]) {
     if (!selectedAssignment || !selectedSchedule) return;
     setReissueError(null);
-    const input = buildReissueProblemSetInput(selectedAssignment, selectedIds);
-    if (!input) {
-      setReissueError("다시 출제할 문제를 선택해 주세요.");
-      return;
-    }
-
-    const created = appendProblemSet({
-      ...input,
-      assignedClassIds: [selectedSchedule.classId],
-    });
-    const titled = updateProblemSet(loadProblemSets(), created.id, {
-      title: reissueProblemSetTitle(selectedAssignment),
-    });
-    persistProblemSets(titled);
-    const saved =
-      titled.find((item) => item.id === created.id) ?? created;
-    setReissueProblemSet(saved);
+    setReissueFilterIds(filterIds ?? null);
     setReissueOpen(true);
   }
 
-  const studentFilterChips: {
-    id: StudentProgressFilter;
+  type FilterChip = {
+    id: string;
     label: string;
     count: number;
     activeClass: string;
     inactiveClass: string;
-  }[] = [
+    onSelect: () => void;
+    active: boolean;
+  };
+
+  const classWideChips: FilterChip[] = [
     {
       id: "all",
       label: "전체",
       count: selectedProgress.length,
       activeClass: "bg-[#1F2A37] text-white",
       inactiveClass: "bg-[#F3F4F6] text-[#6B7280]",
+      onSelect: () => setStudentFilter("all"),
+      active: studentFilter === "all",
     },
     {
       id: "idle",
@@ -456,6 +731,8 @@ export function ClassAssignmentsPanel({
       count: metrics.idle,
       activeClass: "bg-[#FEE7E7] text-[#C52B2B]",
       inactiveClass: "bg-[#FEE7E7] text-[#C52B2B]",
+      onSelect: () => setStudentFilter("idle"),
+      active: studentFilter === "idle",
     },
     {
       id: "in_progress",
@@ -463,6 +740,8 @@ export function ClassAssignmentsPanel({
       count: metrics.inProgress,
       activeClass: "bg-[#FEF9E7] text-[#B45309]",
       inactiveClass: "bg-[#FEF9E7] text-[#B45309]",
+      onSelect: () => setStudentFilter("in_progress"),
+      active: studentFilter === "in_progress",
     },
     {
       id: "completed",
@@ -470,8 +749,56 @@ export function ClassAssignmentsPanel({
       count: metrics.completed,
       activeClass: "bg-[#E8F8EF] text-[#047857]",
       inactiveClass: "bg-[#E8F8EF] text-[#047857]",
+      onSelect: () => setStudentFilter("completed"),
+      active: studentFilter === "completed",
     },
   ];
+
+  /*
+    재출제 칩 — 진행 단계가 아니라 **오답을 고쳤는지**로 나눈다.
+    재출제 과제에는 그 학생이 틀렸던 문항만 들어 있어서 만점이 목표치이고,
+    선생님이 바로 찾아야 하는 건 「제출했는데 아직 틀린 학생」이다.
+  */
+  const reissueChips: FilterChip[] = [
+    {
+      id: "all",
+      label: "전체",
+      count: selectedProgress.length,
+      activeClass: "bg-[#1F2A37] text-white",
+      inactiveClass: "bg-[#F3F4F6] text-[#6B7280]",
+      onSelect: () => setReissueFilter("all"),
+      active: reissueFilter === "all",
+    },
+    {
+      id: "unsubmitted",
+      label: "미제출",
+      count: reissueCounts.unsubmitted,
+      activeClass: "bg-[#F3F4F6] text-[#4B5563]",
+      inactiveClass: "bg-[#F3F4F6] text-[#6B7280]",
+      onSelect: () => setReissueFilter("unsubmitted"),
+      active: reissueFilter === "unsubmitted",
+    },
+    {
+      id: "still-wrong",
+      label: "보완 필요",
+      count: reissueCounts.stillWrong,
+      activeClass: "bg-[#FEE7E7] text-[#C52B2B]",
+      inactiveClass: "bg-[#FEE7E7] text-[#C52B2B]",
+      onSelect: () => setReissueFilter("still-wrong"),
+      active: reissueFilter === "still-wrong",
+    },
+    {
+      id: "fixed",
+      label: "만점",
+      count: reissueCounts.fixed,
+      activeClass: "bg-[#E8F8EF] text-[#047857]",
+      inactiveClass: "bg-[#E8F8EF] text-[#047857]",
+      onSelect: () => setReissueFilter("fixed"),
+      active: reissueFilter === "fixed",
+    },
+  ];
+
+  const studentFilterChips = isReissue ? reissueChips : classWideChips;
 
   const [problemRows, setProblemRows] = useState<AssignmentProblemRow[]>([]);
   const [hidePerfect, setHidePerfect] = useState(false);
@@ -488,16 +815,12 @@ export function ClassAssignmentsPanel({
     null,
   );
   const [detailLoading, setDetailLoading] = useState(false);
-  const [classes, setClasses] = useState<TeacherClass[]>([]);
   const [reissueOpen, setReissueOpen] = useState(false);
   const [reissueBusy, setReissueBusy] = useState(false);
   const [reissueError, setReissueError] = useState<string | null>(null);
-  const [reissueProblemSet, setReissueProblemSet] =
-    useState<SavedProblemSet | null>(null);
-
-  useEffect(() => {
-    setClasses(loadTeacherClasses());
-  }, []);
+  const [reissueFilterIds, setReissueFilterIds] = useState<string[] | null>(
+    null,
+  );
 
   const openProblemDetail = (row: AssignmentProblemRow) => {
     setDetailOpen({ row });
@@ -542,30 +865,42 @@ export function ClassAssignmentsPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [detailOpen]);
 
+  const selectedAssignmentRef = useRef(selectedAssignment);
+  selectedAssignmentRef.current = selectedAssignment;
+  const problemStatsAssignmentIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!selectedAssignment || !selected?.assignment.id) {
+    const assignment = selectedAssignmentRef.current;
+    if (!assignment || !selected?.assignment.id) {
       setProblemRows([]);
+      problemStatsAssignmentIdRef.current = null;
       return;
     }
 
     const assignmentId = selected.assignment.id;
-    const fallback = buildProblemRowsFallback(selectedAssignment);
-    setProblemRows(fallback);
+    const fallback = buildProblemRowsFallback(assignment);
+    // 과제 전환 때만 빈 정답률로 초기화 — progress 폴링마다 리셋하면 바가 깜빡임
+    const switched = problemStatsAssignmentIdRef.current !== assignmentId;
+    problemStatsAssignmentIdRef.current = assignmentId;
+    if (switched) {
+      setProblemRows(fallback);
+    }
 
     let cancelled = false;
     void (async () => {
       const stats = await fetchQuestionStats(
         assignmentId,
-        buildProblemSnapshot(selectedAssignment),
+        buildProblemSnapshot(assignment),
       );
       if (cancelled) return;
+      if (problemStatsAssignmentIdRef.current !== assignmentId) return;
       setProblemRows(stats.length > 0 ? statsToRows(stats) : fallback);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [selected?.assignment.id, selectedAssignment, progressRefreshKey]);
+  }, [selected?.assignment.id, progressRefreshKey]);
 
   const resultMetrics = useMemo(() => {
     const answered = problemRows.filter((row) => row.correctRate != null);
@@ -625,7 +960,7 @@ export function ClassAssignmentsPanel({
   );
 
   const canReissueSelected = checkedProblemIds.size > 0 && !reissueBusy;
-  const canReissueWeak = weakProblemIds.length > 0 && !reissueBusy;
+  const canReissueWeak = printableStudents.length > 0 && !reissueBusy;
 
   useEffect(() => {
     setCheckedProblemIds(new Set());
@@ -668,9 +1003,11 @@ export function ClassAssignmentsPanel({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    {assignments.length > 0 ? (
+                    {pickerViews.length > 0 ? (
                       <AssignmentPicker
-                        assignments={assignments}
+                        assignments={pickerViews}
+                        batchSizeById={batchSizeById}
+                        students={students}
                         selectedId={selected?.assignment.id ?? null}
                         open={pickerOpen}
                         progressByAssignment={progressByAssignment}
@@ -691,6 +1028,28 @@ export function ClassAssignmentsPanel({
                         {selectedAssignment.title}
                       </h2>
                     )}
+                    {selectedTargetLabel ? (
+                      <span className="shrink-0 rounded-full bg-[#ECFDF5] px-2.5 py-1 text-[11px] font-bold text-[#047857]">
+                        오답 재출제 · {selectedTargetLabel}
+                      </span>
+                    ) : null}
+                    {/* 재출제는 원본과의 관계가 곧 의미라 원본으로 바로 건너뛸 수 있게 한다 */}
+                    {isReissue && sourceView ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(sourceView.assignment.id);
+                          setPickerOpen(false);
+                        }}
+                        title={sourceView.problemSet.title}
+                        className="inline-flex max-w-[220px] shrink-0 items-center gap-1 rounded-full border border-[#E1E2E4] bg-white px-2.5 py-1 text-[11px] font-bold text-[#6B7280] hover:border-[#1AA7F2] hover:text-[#1274A9]"
+                      >
+                        <span aria-hidden>↩</span>
+                        <span className="truncate">
+                          원본 · {sourceView.problemSet.title}
+                        </span>
+                      </button>
+                    ) : null}
                     <span className="shrink-0 rounded-full bg-[#EAF6FE] px-2.5 py-1 text-[11px] font-bold text-[#1274A9]">
                       {formatAssignmentPeriod(selectedSchedule)}
                     </span>
@@ -730,44 +1089,130 @@ export function ClassAssignmentsPanel({
             </header>
 
             <div className="py-5">
-              <div className="grid grid-cols-4 gap-3">
-                <MetricCard
-                  label="배정 학생"
-                  value={`${students.length}명`}
-                  detail={`응시 ${metrics.started}명`}
-                />
-                <MetricCard
-                  label="완료"
-                  value={`${metrics.completed}명`}
-                  detail={`미학습 ${metrics.idle}명`}
-                  highlight
-                  detailStyle={{ color: "#EF4444" }}
-                />
-                <MetricCard
-                  label="평균 점수"
-                  value={metrics.avg != null ? `${metrics.avg}점` : "—"}
-                  valueStyle={
-                    metrics.avg != null ? undefined : { color: "#9CA3AF" }
-                  }
-                  detail="최근 완료 시도 기준"
-                />
-                <MetricCard
-                  label="문항 수"
-                  value={`${problemSetItemCount(selectedAssignment)}문항`}
-                  detail={problemSetItemSummary(selectedAssignment).replace(
-                    ` · 총 ${problemSetItemCount(selectedAssignment)}문제`,
-                    "",
-                  )}
-                />
-              </div>
+              {/*
+                재출제는 학생 1명짜리라 반 단위 지표를 그대로 쓰면 「평균 점수(1명)」
+                「미학습 학생 1명 / 전체 1명 중」처럼 정보량이 0인 칸이 된다.
+                같은 자리에 그 학생 하나를 설명하는 값으로 바꿔 넣는다.
+              */}
+              {isReissue ? (
+                <div className="grid grid-cols-4 gap-3">
+                  <MetricCard
+                    label="대상 학생"
+                    value={
+                      isBatchReissue
+                        ? `${batchSize}명`
+                        : (selectedTargetLabel ?? "개인")
+                    }
+                    detail={
+                      isBatchReissue
+                        ? "각자 틀린 문항만 받습니다"
+                        : "이 학생만 앱에서 봅니다"
+                    }
+                  />
+                  <MetricCard
+                    label="제출"
+                    value={
+                      isBatchReissue
+                        ? `${metrics.completed}/${batchSize}명`
+                        : metrics.completed > 0
+                          ? "완료"
+                          : "미제출"
+                    }
+                    detail={
+                      isBatchReissue
+                        ? // 칩 라벨과 같은 말을 쓴다 — 여기는 「미학습」, 칩은 「미제출」이면 헷갈린다
+                          `미제출 ${reissueCounts.unsubmitted}명 · 보완 필요 ${reissueCounts.stillWrong}명`
+                        : reissueRow?.submittedAt
+                          ? formatSubmittedAt(reissueRow.submittedAt)
+                          : `진행률 ${reissueRow?.progressPercent ?? 0}%`
+                    }
+                    highlight
+                    detailStyle={
+                      metrics.completed > 0 ? undefined : { color: "#EF4444" }
+                    }
+                  />
+                  {/*
+                    「점수」가 아니라 「고친 개수」다 — 재출제 백분율은 원본과 분모가 달라
+                    비교할 수 없고, 선생님이 알고 싶은 건 「틀린 걸 몇 개 고쳤나」다.
+                  */}
+                  <MetricCard
+                    label="만점"
+                    value={
+                      isBatchReissue
+                        ? `${reissueCounts.fixed}/${selectedProgress.length}명`
+                        : reissueCounts.fixed > 0
+                          ? "예"
+                          : reissueCounts.stillWrong > 0
+                            ? "보완 필요"
+                            : "—"
+                    }
+                    valueStyle={
+                      reissueCounts.fixed > 0 ? undefined : { color: "#9CA3AF" }
+                    }
+                    detail={
+                      reissueCounts.stillWrong > 0
+                        ? `보완 필요 ${reissueCounts.stillWrong}명`
+                        : "틀렸던 문항을 모두 고쳤어요"
+                    }
+                  />
+                  <MetricCard
+                    label="틀렸던 문항"
+                    value={
+                      isBatchReissue
+                        ? `평균 ${reissueAvgItemCount}문항`
+                        : `${problemSetItemCount(selectedAssignment)}문항`
+                    }
+                    detail={
+                      sourceView
+                        ? `원본 ${problemSetItemCount(sourceView.problemSet)}문항 중`
+                        : "원본 과제 없음(삭제됨)"
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-3">
+                  <MetricCard
+                    label="배정 학생"
+                    value={`${assignedStudents.length}명`}
+                    detail={`응시 ${metrics.started}명`}
+                  />
+                  <MetricCard
+                    label="완료"
+                    value={`${metrics.completed}명`}
+                    detail={`미학습 ${metrics.idle}명`}
+                    highlight
+                    detailStyle={{ color: "#EF4444" }}
+                  />
+                  <MetricCard
+                    label="평균 점수"
+                    value={metrics.avg != null ? `${metrics.avg}점` : "—"}
+                    valueStyle={
+                      metrics.avg != null ? undefined : { color: "#9CA3AF" }
+                    }
+                    detail="최근 완료 시도 기준"
+                  />
+                  <MetricCard
+                    label="문항 수"
+                    value={`${problemSetItemCount(selectedAssignment)}문항`}
+                    detail={problemSetItemSummary(selectedAssignment).replace(
+                      ` · 총 ${problemSetItemCount(selectedAssignment)}문제`,
+                      "",
+                    )}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="mb-3">
               <p className="text-[14px] font-bold text-[#4B5563]">
-                학생별 학습 현황
+                {isReissue && !isBatchReissue ? "학습 현황" : "학생별 학습 현황"}
               </p>
 
               <div className="mt-3 flex items-center gap-3">
+                {/*
+                  일반·오답 재출제(개인/단체) 모두 같은 줄에 이름 검색을 둔다.
+                  필터·오답 시험지 출력 버튼과 나란히 — 검색은 왼쪽, 출력은 ml-auto 오른쪽.
+                */}
                 <div className="flex h-10 w-[240px] shrink-0 items-center rounded-full border border-[#E5E7EB] bg-white px-4">
                   <input
                     value={studentQuery}
@@ -778,14 +1223,21 @@ export function ClassAssignmentsPanel({
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div
+                  /*
+                    개인(1명) 재출제에서도 칩을 보여준다. 「n=1이라 무의미」해서 숨겼었는데,
+                    그러면 오답 칩이 **화면에서 아예 사라져** 바뀐 걸 확인할 수가 없다.
+                    한 명이어도 `아직 틀림 1`은 「고쳤나」를 한눈에 알려주는 값이다.
+                  */
+                  className="flex flex-wrap items-center gap-2"
+                >
                   {studentFilterChips.map((chip) => {
-                    const active = chip.id === studentFilter;
+                    const active = chip.active;
                     return (
                       <button
                         key={chip.id}
                         type="button"
-                        onClick={() => setStudentFilter(chip.id)}
+                        onClick={chip.onSelect}
                         className={`inline-flex h-9 cursor-pointer items-center rounded-full px-3.5 text-[12px] font-bold transition-colors ${
                           active ? chip.activeClass : chip.inactiveClass
                         } ${
@@ -810,13 +1262,18 @@ export function ClassAssignmentsPanel({
                   }
                   onClick={() =>
                     void openWrongAnswerPrint({
-                      title: "학생 개별 오답 시험지 한 번에 출력",
+                      title: isReissue
+                        ? `${selectedTargetLabel ?? "학생"} 오답 시험지`
+                        : "학생 개별 오답 시험지 한 번에 출력",
                       rows: printableStudents,
                     })
                   }
                   className="ml-auto shrink-0 rounded-full bg-[#2F80ED] px-3.5 py-1.5 text-[12px] font-bold text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  학생 개별 오답 시험지 한 번에 출력
+                  {/* 한 명뿐인데 「한 번에」는 어색하다 */}
+                  {isReissue && !isBatchReissue
+                    ? "오답 시험지 출력"
+                    : "학생 개별 오답 시험지 한 번에 출력"}
                 </button>
               </div>
             </div>
@@ -824,10 +1281,20 @@ export function ClassAssignmentsPanel({
             <div className="overflow-hidden rounded-[14px] border border-[#EDEFF2] bg-white">
               <div className="flex h-12 items-center border-b border-[#EDEFF2] px-5 text-[12px] font-semibold text-[#9CA3AF]">
                 <span className="min-w-0 flex-1">학생</span>
-                <span className="w-[104px]">학습 현황</span>
+                {/* 재출제는 「진행 단계」가 아니라 「고쳤나」가 궁금한 표다 */}
+                <span className="w-[104px]">{isReissue ? "결과" : "학습 현황"}</span>
                 <span className="w-[72px] text-center">진행률</span>
-                <span className="w-[76px] text-center">정답률</span>
-                <span className="w-[120px] text-center">점수 변화</span>
+                <span className="w-[76px] text-center">
+                  {isReissue ? "틀렸던 문항" : "정답률"}
+                </span>
+                <span className="w-[120px] text-center">
+                  {/*
+                    재출제에는 「점수 변화」에 해당하는 참값이 없다 —
+                    원본과 분모가 다르고, 서버 `answered_count`는 재풀이로 부풀어
+                    `48/50` 같은 숫자가 나온다. 빈칸으로 두는 게 거짓말보다 낫다.
+                  */}
+                  {isReissue ? "" : "점수 변화"}
+                </span>
                 <span className="w-[116px] text-center">과제 제출 시간</span>
                 <span className="w-[108px]" aria-hidden />
               </div>
@@ -853,7 +1320,39 @@ export function ClassAssignmentsPanel({
               ) : (
                 <ul>
                   {visibleStudentProgress.map((row) => {
-                    const badge = statusBadge(row.status);
+                    const badge = isReissue
+                      ? reissueOutcomeBadge(row)
+                      : statusBadge(row.status);
+
+                    /**
+                     * 재출제 「이번 정답」 — `21/22`.
+                     *
+                     * **실제로 푼 문항 수를 그대로 쓴다.** 점수(%)에서 개수를 역산했더니
+                     * 96%가 `7/7`로 보이면서 배지(「아직 틀림」)와 어긋났다.
+                     * 여기 분모는 학생이 실제 푼 **출제 문항** 수라, 위 카드의
+                     * 「틀렸던 문항 7문항」(문제집 항목 수)과 숫자가 다를 수 있다 —
+                     * 단어 1개가 짝맞추기·3지선다·영작 3문항으로 나가기 때문이다.
+                     */
+                    /**
+                     * 재출제 「틀렸던 문항」 — 이 학생이 원본에서 틀려서 다시 받은 개수.
+                     *
+                     * 서버의 `answered_count`는 쓰지 않는다. 그건 **답안 이벤트 카운터**라
+                     * 같은 문제를 다시 풀면 계속 올라가고(`clientAnswerId`에 `Date.now()`가
+                     * 들어가 중복 제거가 안 된다), 그래서 7문항짜리에 `48/50` 같은 값이 나왔다.
+                     * 여기 값은 교사 로컬의 문제집 항목 수라 부풀지 않는다.
+                     */
+                    const fixedCell = (() => {
+                      const total = reissueItemCountByStudent[row.studentId];
+                      return total ? `${total}문항` : "—";
+                    })();
+
+                    /**
+                     * 재출제 행의 「원본 점수」 — **참고값이지 비교 대상이 아니다.**
+                     * 원본(전체 문항)과 재출제(틀린 것만)는 분모가 달라 증감을 낼 수 없다.
+                     * 여기 값은 「이 학생이 원래 몇 점이었나」를 옆에 두는 용도다.
+                     */
+                    const versusSource = "";
+
                     const scoreChange = (() => {
                       if (row.firstScore == null && row.latestScore == null) {
                         return "—";
@@ -898,12 +1397,14 @@ export function ClassAssignmentsPanel({
                           {row.progressPercent}%
                         </span>
                         <span className="w-[76px] text-center text-[13px] text-[#6B7280]">
-                          {row.latestAccuracy != null
-                            ? `${row.latestAccuracy}%`
-                            : "—"}
+                          {isReissue
+                            ? fixedCell
+                            : row.latestAccuracy != null
+                              ? `${row.latestAccuracy}%`
+                              : "—"}
                         </span>
                         <span className="w-[120px] text-center text-[12px] text-[#6B7280]">
-                          {scoreChange}
+                          {isReissue ? versusSource : scoreChange}
                         </span>
                         <span className="w-[116px] text-center text-[13px] text-[#6B7280]">
                           {formatSubmittedAt(row.submittedAt)}
@@ -943,12 +1444,28 @@ export function ClassAssignmentsPanel({
                     과제 결과
                   </h3>
                   <p className="mt-1.5 text-[13px] font-medium leading-5 text-[#8A8F98]">
-                    단어·문장·문법을 나눠 보고, 오답이 많은 문제를 확인해 보세요.
+                    {isReissue
+                      ? `${selectedTargetLabel ?? "이 학생"}이 원본에서 틀렸던 문항입니다. 이번엔 맞혔는지 확인해 보세요.`
+                      : "단어·문장·문법을 나눠 보고, 오답이 많은 문제를 확인해 보세요."}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-4 gap-3.5">
+              {/*
+                재출제에서는 4칸 중 두 칸을 뺀다.
+                - 「미학습 학생 N명 / 전체 N명 중」: 대상이 한 명이라 상단 「제출」과 같은 말
+                - 「오답만 다시 출제」: 오답 과제 위에 또 오답 과제를 만드는 재귀. 눌러 나갈수록
+                  학생 맵에 성만 쌓이고 원본과의 관계도 흐려진다.
+              */}
+              <div
+                className={`mt-5 grid gap-3.5 ${
+                  isReissue && !isBatchReissue
+                    ? "grid-cols-2"
+                    : isReissue
+                      ? "grid-cols-3"
+                      : "grid-cols-4"
+                }`}
+              >
                 <ResultCard
                   accent="#1AA7F2"
                   accentSoft="#EAF6FE"
@@ -982,30 +1499,32 @@ export function ClassAssignmentsPanel({
                       : "제출 데이터 없음"
                   }
                 />
-                <ResultCard
-                  accent="#EF4444"
-                  accentSoft="#FEF2F2"
-                  icon={
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden
-                    >
-                      <path d="M12 8.5v5" />
-                      <path d="M12 16.8h.01" />
-                    </svg>
-                  }
-                  label="미학습 학생"
-                  value={`${metrics.idle}명`}
-                  valueTone="red"
-                  detail={`전체 ${students.length}명 중`}
-                />
+                {isReissue && !isBatchReissue ? null : (
+                  <ResultCard
+                    accent="#EF4444"
+                    accentSoft="#FEF2F2"
+                    icon={
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="M12 8.5v5" />
+                        <path d="M12 16.8h.01" />
+                      </svg>
+                    }
+                    label="미학습 학생"
+                    value={`${metrics.idle}명`}
+                    valueTone="red"
+                    detail={`전체 ${students.length}명 중`}
+                  />
+                )}
                 <ResultCard
                   accent="#D97706"
                   accentSoft="#FFFBEB"
@@ -1036,12 +1555,14 @@ export function ClassAssignmentsPanel({
                   }
                   detail="다시 학습이 필요한 문제"
                 />
-                <ReissueResultCard
-                  enabled={canReissueWeak}
-                  weakCount={weakProblemIds.length}
-                  error={reissueError}
-                  onCreate={() => startReissueWrongProblems(weakProblemIds)}
-                />
+                {isReissue ? null : (
+                  <ReissueResultCard
+                    enabled={canReissueWeak}
+                    studentCount={printableStudents.length}
+                    error={reissueError}
+                    onCreate={() => openReissueWrongModal()}
+                  />
+                )}
               </div>
 
               {categoryTabs.length > 0 ? (
@@ -1259,11 +1780,11 @@ export function ClassAssignmentsPanel({
                   disabled={!canReissueSelected}
                   title={
                     canReissueSelected
-                      ? "선택한 문제만 모아 앱에서 다시 풀게 해요."
+                      ? "선택한 문항의 학생별 오답만 앱에 보내요."
                       : "다시 출제할 문제를 선택해 주세요."
                   }
                   onClick={() =>
-                    startReissueWrongProblems([...checkedProblemIds])
+                    openReissueWrongModal([...checkedProblemIds])
                   }
                   className={`rounded-[10px] px-4 py-2.5 text-[13px] font-bold ${
                     canReissueSelected
@@ -1333,58 +1854,34 @@ export function ClassAssignmentsPanel({
         />
       ) : null}
 
-      {reissueOpen && reissueProblemSet && selectedSchedule ? (
-        <AssignAssignmentModal
+      {reissueOpen && selectedAssignment && selectedSchedule ? (
+        <ReissueWrongAnswersModal
           open={reissueOpen}
-          classes={classes}
-          classIds={[selectedSchedule.classId]}
-          overlayClassName="z-[100]"
+          source={selectedAssignment}
+          classId={selectedSchedule.classId}
+          assignmentId={selectedSchedule.id}
+          classLabel={resolvedClassLabel}
+          students={printableStudents}
+          filterBaseIds={reissueFilterIds}
+          teacherClass={teacherClass}
+          busy={reissueBusy}
           onClose={() => {
             if (reissueBusy) return;
             setReissueOpen(false);
-            setReissueProblemSet(null);
+            setReissueFilterIds(null);
           }}
-          onConfirm={(draftAssignments: CreateClassAssignmentInput[]) => {
-            if (!reissueProblemSet) return;
-            setReissueBusy(true);
-            void (async () => {
-              try {
-                const problemSetId = reissueProblemSet.id;
-                const nextAssignments = upsertAssignmentsForProblemSet(
-                  problemSetId,
-                  draftAssignments.map((item) => ({
-                    ...item,
-                    problemSetId,
-                  })),
-                );
-                const assignedClassIds = draftAssignments.map(
-                  (item) => item.classId,
-                );
-                const nextSets = updateProblemSet(
-                  loadProblemSets(),
-                  problemSetId,
-                  { assignedClassIds },
-                );
-                persistProblemSets(nextSets);
-                const problemSet =
-                  nextSets.find((item) => item.id === problemSetId) ??
-                  reissueProblemSet;
-                await publishProblemSetAndAssignments({
-                  problemSet,
-                  assignments: nextAssignments.filter(
-                    (item) => item.problemSetId === problemSetId,
-                  ),
-                });
-                setReissueOpen(false);
-                setReissueProblemSet(null);
-                setCheckedProblemIds(new Set());
-                setReissueBusy(false);
-              } catch {
-                setReissueBusy(false);
-                setReissueError("부여하지 못했어요. 다시 시도해 주세요.");
-                setReissueOpen(false);
-              }
-            })();
+          onDone={() => {
+            setReissueOpen(false);
+            setReissueFilterIds(null);
+            setCheckedProblemIds(new Set());
+            setReissueBusy(false);
+            setReissueError(null);
+          }}
+          onError={(message) => {
+            setReissueBusy(false);
+            setReissueError(message);
+            setReissueOpen(false);
+            setReissueFilterIds(null);
           }}
         />
       ) : null}
@@ -1402,6 +1899,8 @@ export function ClassAssignmentsPanel({
 
 function AssignmentPicker({
   assignments,
+  batchSizeById,
+  students,
   selectedId,
   open,
   progressByAssignment,
@@ -1411,6 +1910,9 @@ function AssignmentPicker({
   onDelete,
 }: {
   assignments: AssignedProblemView[];
+  /** 재출제 묶음 대표 과제 id → 묶음에 속한 학생 수 (1이면 개인) */
+  batchSizeById: Record<string, number>;
+  students: ClassStudent[];
   selectedId: string | null;
   open: boolean;
   progressByAssignment: Record<string, StudentProgressRow[]>;
@@ -1437,9 +1939,12 @@ function AssignmentPicker({
 
   if (!selected) return null;
 
+  const selectedCohortCount = selected.assignment.targetStudentId
+    ? (batchSizeById[selected.assignment.id] ?? 1)
+    : studentCount;
   const selectedCompleted = isAssignmentFullyCompleted(
     progressByAssignment[selected.assignment.id],
-    studentCount,
+    selectedCohortCount,
   );
 
   return (
@@ -1489,10 +1994,21 @@ function AssignmentPicker({
           {assignments.map((view) => {
             const { assignment, problemSet } = view;
             const active = assignment.id === selected.assignment.id;
+            const cohortCount = assignment.targetStudentId
+              ? (batchSizeById[assignment.id] ?? 1)
+              : studentCount;
             const completed = isAssignmentFullyCompleted(
               progressByAssignment[assignment.id],
-              studentCount,
+              cohortCount,
             );
+            const targetLabel = resolveTargetStudentLabel(assignment, students);
+            // 단체 재출제는 이름 대신 인원수로 — 20줄이 1줄로 접혀 있기 때문
+            const size = batchSizeById[assignment.id] ?? 1;
+            const reissueNote = targetLabel
+              ? size > 1
+                ? ` · 오답 재출제 · ${size}명`
+                : ` · 오답 재출제 · ${targetLabel}`
+              : "";
             return (
               <li key={assignment.id} className="group relative">
                 <button
@@ -1512,7 +2028,17 @@ function AssignmentPicker({
                   </span>
                   <span className="mt-0.5 block text-[12px] font-medium text-[#9CA3AF]">
                     {formatAssignmentSchedule(assignment)}
+                    {reissueNote}
                   </span>
+                  {/*
+                    아직 공개 전이면 학생 앱에는 안 보인다. 표시가 없으면 교사는
+                    「출제가 안 됐나」로 읽는다 — 언제 열리는지까지 적어 준다.
+                  */}
+                  {isScheduledForLater(assignment.openAt) ? (
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#FFF4D6] px-2 py-0.5 text-[11px] font-bold text-[#8A6100]">
+                      예약 · {formatOpenAtKo(assignment.openAt)}
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
@@ -1520,8 +2046,14 @@ function AssignmentPicker({
                     event.stopPropagation();
                     onDelete(view);
                   }}
-                  aria-label={`「${problemSet.title}」 부여 취소`}
-                  title="부여한 과제 취소"
+                  aria-label={
+                    size > 1
+                      ? `「${problemSet.title}」 재출제 ${size}명 전체 취소`
+                      : `「${problemSet.title}」 부여 취소`
+                  }
+                  title={
+                    size > 1 ? `재출제 ${size}명 전체 취소` : "부여한 과제 취소"
+                  }
                   className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#B0B4BB] opacity-0 transition-all hover:bg-[#FEE7E7] hover:text-[#C52B2B] group-hover:opacity-100"
                 >
                   <svg
@@ -1629,8 +2161,9 @@ function RenameAssignmentTitleModal({
   );
 }
 
-/** 부여 취소 팝업 마감 칩 — `마감 7월 24일 · 다음 수업 전까지` */
+/** 부여 취소 팝업 마감 칩 — 마감 없으면 빈 문자열 */
 function formatDeadlineCancelTag(assignment: ClassAssignment): string {
+  if (!hasAssignmentDeadline(assignment)) return "";
   const dateLabel = formatLessonDateKo(assignment.deadlineDate);
   if (assignment.deadlineUntilNextLesson) {
     return `마감 ${dateLabel} · 다음 수업 전까지`;
@@ -1960,12 +2493,12 @@ function ProblemDetailModal({
 
 function ReissueResultCard({
   enabled,
-  weakCount,
+  studentCount,
   error,
   onCreate,
 }: {
   enabled: boolean;
-  weakCount: number;
+  studentCount: number;
   error: string | null;
   onCreate: () => void;
 }) {
@@ -1996,10 +2529,10 @@ function ReissueResultCard({
         </span>
       </div>
 
-      <p className="mt-3 flex-1 text-[12px] font-medium leading-[1.55] tracking-[-0.01em] text-[#8B919A]">
+      <p className="mt-3 flex-1 whitespace-nowrap text-[12px] font-medium leading-[1.55] tracking-[-0.01em] text-[#8B919A]">
         {enabled
-          ? `정답률 100% 미만 ${weakCount}문항을 모아 앱에서 다시 풀게 할 수 있어요.`
-          : "아직 오답 데이터가 없어요. 제출 후 만들 수 있어요."}
+          ? `제출 ${studentCount}명의 오답만 각자 앱에 보내요.`
+          : "제출 후 보낼 수 있어요."}
       </p>
 
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -2015,8 +2548,8 @@ function ReissueResultCard({
           disabled={!enabled}
           title={
             enabled
-              ? "오답 문항으로 새 과제를 만들어요."
-              : "정답률이 100% 미만인 문제가 생기면 만들 수 있어요."
+              ? "학생별 오답을 앱 과제로 보내요."
+              : "제출한 학생이 생기면 보낼 수 있어요."
           }
           onClick={onCreate}
           className="h-8 shrink-0 rounded-[8px] bg-[#1AA7F2] px-3.5 text-[12px] font-bold tracking-[-0.01em] text-white transition-colors hover:bg-[#1596d9] disabled:cursor-not-allowed disabled:bg-[#E5E7EB] disabled:text-[#9CA3AF]"

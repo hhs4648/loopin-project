@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   useEffect,
   useId,
+  useMemo,
   useState,
   type KeyboardEvent,
 } from "react";
@@ -32,7 +33,14 @@ import {
   type ClassHomeStudentStatus,
 } from "@/lib/class-assignments";
 import type { AttemptProgress } from "@/lib/sync/types";
-import { problemSetItemCount } from "@/lib/problem-sets";
+import {
+  problemSetItemCount,
+  type SavedProblemSet,
+} from "@/lib/problem-sets";
+import {
+  buildUnitPartProgress,
+  continueUnitHref,
+} from "@/lib/problem-set-parts";
 
 /** SVG 히어로 카드 (담당 반 색으로 다시 칠함) */
 const HERO = {
@@ -87,6 +95,18 @@ const STUDENT_CARD = {
   maxVisible: 4,
 } as const;
 
+/**
+ * 「진행 중인 단원」 — 과제/학생 현황 카드(하단 514) 와 반 정보 헤더(639) 사이 빈 구간.
+ * 파트로 나눈 단원의 다음 파트를 여기서 바로 부여한다.
+ */
+const UNIT_PROGRESS_CARD = {
+  left: 294.375,
+  top: 530,
+  width: 1206.12,
+  height: 100,
+  radius: 12.4344,
+} as const;
+
 /** SVG 반 정보 — 네모칸(보더) 제거하고 실데이터 */
 const CLASS_INFO = {
   left: 294.375,
@@ -109,6 +129,8 @@ type ClassHomeOverlayProps = {
   students?: ClassStudent[];
   classId?: string;
   assignments?: AssignedProblemView[];
+  /** 「진행 중인 단원」에서 아직 부여하지 않은 파트를 찾기 위해 전체 문제집이 필요하다 */
+  problemSets?: SavedProblemSet[];
   attempts?: AttemptProgress[];
   incompleteAssignmentCount?: number;
   oneOffLessons?: OneOffLesson[];
@@ -132,6 +154,7 @@ export function ClassHomeOverlay({
   students = [],
   classId,
   assignments = [],
+  problemSets = [],
   attempts = [],
   incompleteAssignmentCount = 0,
   oneOffLessons = [],
@@ -227,6 +250,18 @@ export function ClassHomeOverlay({
   const gradeLabel = teacherClass?.grade?.trim() || "미설정";
   const inviteCode = teacherClass?.inviteCode || "—";
 
+  /** 파트가 1개 이상 부여됐고 아직 안 낸 파트가 남은 단원 */
+  const unitProgress = useMemo(
+    () =>
+      classId
+        ? buildUnitPartProgress(
+            problemSets,
+            assignments.map((view) => view.assignment),
+            classId,
+          )
+        : [],
+    [problemSets, assignments, classId],
+  );
   return (
     <div className="pointer-events-none absolute inset-0 z-[22]">
       {/* SVG 우상단 「N차시 진행중」 알약 가림 (차시 개념 제거) */}
@@ -584,6 +619,79 @@ export function ClassHomeOverlay({
           </ul>
         )}
       </div>
+
+      {/* 진행 중인 단원 — 파트로 나눈 단원의 다음 파트를 여기서 바로 부여 */}
+      {unitProgress.length > 0 ? (
+        <div
+          className="pointer-events-auto absolute flex flex-col overflow-hidden border border-[#E0E4EA] bg-white"
+          style={{
+            left: UNIT_PROGRESS_CARD.left,
+            top: UNIT_PROGRESS_CARD.top,
+            width: UNIT_PROGRESS_CARD.width,
+            height: UNIT_PROGRESS_CARD.height,
+            borderRadius: UNIT_PROGRESS_CARD.radius,
+          }}
+          aria-label="진행 중인 단원"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-3 pb-1.5">
+            <h3 className="shrink-0 text-[15px] font-bold text-[#16150F]">
+              진행 중인 단원
+            </h3>
+            <span className="min-w-0 truncate text-[11px] font-medium text-[#9A958E]">
+              이어서 내면 다음 파트가 미리 골라져요
+            </span>
+          </div>
+          <ul className="flex flex-1 flex-col gap-1 overflow-y-auto px-5 pb-3">
+            {unitProgress.map((unit) => (
+              <li
+                key={unit.unitKey}
+                className="flex min-h-[36px] shrink-0 items-center gap-2.5"
+              >
+                <span
+                  className="h-6 w-1 shrink-0 rounded-full"
+                  style={{ backgroundColor: barColor }}
+                  aria-hidden
+                />
+                <span className="max-w-[260px] shrink-0 truncate text-[13px] font-bold text-[#16150F]">
+                  {unit.unitTitle}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                  {unit.categories.map((category) => (
+                    <span
+                      key={category.category}
+                      className="flex h-7 shrink-0 items-center gap-1.5 rounded-[8px] border border-[#E0E4EA] bg-[#F7F8FA] px-2.5 text-[11px] font-semibold text-[#5B5B5B]"
+                    >
+                      {category.label}
+                      <span
+                        className="font-bold"
+                        style={{
+                          color:
+                            category.nextIndex === null ? "#1B7A45" : accent,
+                        }}
+                      >
+                        {category.doneIndices.length} / {category.total}
+                      </span>
+                      {category.nextIndex === null ? (
+                        <span className="font-medium text-[#1B7A45]">완료</span>
+                      ) : (
+                        <span className="font-medium text-[#9A958E]">
+                          다음 {category.nextIndex}파트
+                        </span>
+                      )}
+                    </span>
+                  ))}
+                </span>
+                <Link
+                  href={continueUnitHref(unit, classId ?? "")}
+                  className="flex h-7 shrink-0 items-center rounded-[8px] border border-[#BAE6FD] bg-[#F0F9FF] px-2.5 text-[11px] font-bold text-[#1274A9] outline-none transition-colors hover:border-[#1AA7F2] hover:bg-[#E0F2FE] focus-visible:ring-2 focus-visible:ring-[#1AA7F2]"
+                >
+                  이어서 내기 →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* 반 정보 — SVG 네모칸 가리고 보더 없이 실데이터 */}
       <div

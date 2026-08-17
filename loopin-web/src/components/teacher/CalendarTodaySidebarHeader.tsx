@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import {
   DEFAULT_ACADEMIC_SCHEDULE,
@@ -17,6 +18,14 @@ import {
   type OneOffLesson,
 } from "@/lib/calendar-one-off-lessons";
 import {
+  formatAssignmentPeriod,
+  getLatestAssignedProblemPerClass,
+  type AssignedProblemView,
+  type ClassAssignment,
+} from "@/lib/class-assignments";
+import { classTabHref } from "@/lib/class-tabs";
+import type { SavedProblemSet } from "@/lib/problem-sets";
+import {
   isDateInClassPeriods,
   type TeacherClass,
 } from "@/lib/teacher-classes";
@@ -25,16 +34,20 @@ const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
 /**
  * 캘린더 오른쪽 오늘 사이드바.
- * SVG 데모와 열기/닫기 아이콘을 전부 가리고 실제 오늘 수업·빈 상태를 표시한다.
+ * SVG 데모와 열기/닫기 아이콘을 전부 가리고 실제 오늘 수업·반별 최근 과제를 표시한다.
  */
 export function CalendarTodaySidebarHeader({
   classes,
   oneOffLessons,
   academicSchedule = DEFAULT_ACADEMIC_SCHEDULE,
+  assignments = [],
+  problemSets = [],
 }: {
   classes: TeacherClass[];
   oneOffLessons: OneOffLesson[];
   academicSchedule?: AcademicScheduleSettings;
+  assignments?: ClassAssignment[];
+  problemSets?: SavedProblemSet[];
 }) {
   const today = new Date();
   const dateLabel = `${today.getMonth() + 1}월 ${today.getDate()}일`;
@@ -75,6 +88,13 @@ export function CalendarTodaySidebarHeader({
   const todayClasses = [...recurringClasses, ...addedClasses].sort((a, b) =>
     a.time.start.localeCompare(b.time.start),
   );
+
+  const classAssignments = getLatestAssignedProblemPerClass(
+    problemSets,
+    assignments,
+    classes.map((item) => item.id),
+  );
+  const classById = new Map(classes.map((item) => [item.id, item]));
 
   return (
     <>
@@ -182,15 +202,74 @@ export function CalendarTodaySidebarHeader({
         aria-label="과제 제출"
       >
         <h2 className="px-1 text-[12px] font-bold text-[#3D4148]">과제 제출</h2>
-        <div className="mt-2">
-          <EmptyState
-            icon={<InboxIcon />}
-            title="새로운 과제 제출이 없어요"
-            description="제출된 과제가 여기에 표시됩니다."
-          />
+        <div className="mt-2 flex max-h-[420px] flex-col gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {classAssignments.length > 0 ? (
+            classAssignments.map((view) => (
+              <TodayAssignmentCard
+                key={view.assignment.classId}
+                view={view}
+                teacherClass={classById.get(view.assignment.classId) ?? null}
+              />
+            ))
+          ) : (
+            <EmptyState
+              icon={<InboxIcon />}
+              title="새로운 과제 제출이 없어요"
+              description="반마다 최근에 낸 과제가 여기에 표시됩니다."
+            />
+          )}
         </div>
       </section>
     </>
+  );
+}
+
+function TodayAssignmentCard({
+  view,
+  teacherClass,
+}: {
+  view: AssignedProblemView;
+  teacherClass: TeacherClass | null;
+}) {
+  const href = classTabHref(view.assignment.classId, "assignments");
+  const className = teacherClass?.name ?? "반";
+  const bar = teacherClass?.colors.bar ?? "#1AA7F2";
+  const bg = teacherClass?.colors.calendar ?? "#EAF6FE";
+  const text = teacherClass?.colors.text ?? "#1274A9";
+
+  return (
+    <Link
+      href={href}
+      className="pointer-events-auto flex min-h-14 overflow-hidden rounded-[12px] border border-white/70 outline-none transition-opacity hover:opacity-95 focus-visible:ring-2 focus-visible:ring-[#1AA7F2]/ring-offset-1"
+      style={{ backgroundColor: bg }}
+      aria-label={`${className} ${view.problemSet.title} 과제 보기`}
+    >
+      <span
+        className="w-1 shrink-0"
+        style={{ backgroundColor: bar }}
+        aria-hidden
+      />
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 px-3 py-2">
+        <span
+          className="truncate text-[11px] font-bold"
+          style={{ color: text }}
+        >
+          {className}
+        </span>
+        <span
+          className="truncate text-[12px] font-semibold"
+          style={{ color: text }}
+        >
+          {view.problemSet.title}
+        </span>
+        <span
+          className="truncate text-[10px] font-medium"
+          style={{ color: text, opacity: 0.85 }}
+        >
+          {formatAssignmentPeriod(view.assignment)}
+        </span>
+      </div>
+    </Link>
   );
 }
 

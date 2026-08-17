@@ -37,7 +37,7 @@ flowchart TB
 | 스키마 | `loopin-web/supabase/migrations/001_loopin_sync.sql` + `002_assignment_delete_policies.sql` | profiles~answers + RLS + `enroll_with_invite_code` (002는 과제 삭제 RLS 정책 추가) |
 | 환경변수 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `.env.local` (예: `.env.example`) |
 
-> **리포지토리 범위**: `loopin-web`(이 리포)은 **교사 앱만** 구현한다. 학생 앱(`/student/*`, 학생용 퀴즈 플로우)은 **별도 리포 `loopin-webapp`** 에서, 같은 Supabase 스키마 규칙을 공유하며 개발된다 (`loopin-web/CLAUDE.md` 참조). 아래 2절 폴더 구조는 **제품 전체(1차 웹) 기준 설계**이며, `/login`, `/signup`, `/student/*`, `/api/*`는 이 리포(`loopin-web`)에는 **없다** — 실제로 존재하는 라우트는 `/teacher/*`뿐이다 (현황은 pages.md 1.1 참조).
+> **리포지토리 범위**: `loopin-web`(이 리포)은 **교사 앱만** 구현한다. 학생 앱(`/student/*`, 학생용 퀴즈 플로우)은 **별도 리포 `loopin-webapp`** 에서, 같은 Supabase 스키마 규칙을 공유하며 개발된다 (`loopin-web/AGENTS.md` 참조). 아래 2절 폴더 구조는 **제품 전체(1차 웹) 기준 설계**이며, `/login`, `/signup`, `/student/*`, `/api/*`는 이 리포(`loopin-web`)에는 **없다** — 실제로 존재하는 라우트는 `/teacher/*`뿐이다 (현황은 pages.md 1.1 참조).
 
 ---
 
@@ -133,7 +133,7 @@ interface User {
 
 ## 4. 핵심 API (1차 계획 — 아직 미구현)
 
-> `loopin-web`에는 `src/app/api/*` 라우트가 **없다**. 아래 표는 1차 웹 전체를 위해 계획했던 REST 형태이며, 실제로는 클라이언트가 `@supabase/supabase-js`로 Supabase를 **직접 호출**하거나 `src/lib/*.ts` 모듈을 거쳐 **localStorage**를 읽고 쓰는 local-first 방식으로 구현되어 있다 (동기화는 `src/lib/sync/*`가 best-effort로 처리, `loopin-web/CLAUDE.md` 참조). 커스텀 API 레이어가 필요해지면 아래를 참고해 만든다.
+> `loopin-web`에는 `src/app/api/*` 라우트가 **없다**. 아래 표는 1차 웹 전체를 위해 계획했던 REST 형태이며, 실제로는 클라이언트가 `@supabase/supabase-js`로 Supabase를 **직접 호출**하거나 `src/lib/*.ts` 모듈을 거쳐 **localStorage**를 읽고 쓰는 local-first 방식으로 구현되어 있다 (동기화는 `src/lib/sync/*`가 best-effort로 처리, `loopin-web/AGENTS.md` 참조). 커스텀 API 레이어가 필요해지면 아래를 참고해 만든다.
 
 | Method | Path | 설명 |
 |--------|------|------|

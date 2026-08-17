@@ -33,12 +33,60 @@ export type CustomAssignmentDraft = {
   sentenceDrafts: Record<string, SentenceAnalysis>;
 };
 
+/** 한 카테고리를 n등분했을 때 이 문제집이 담은 조각 */
+export type ProblemSetPartRange = {
+  /**
+   * 담은 파트 중 **가장 앞 번호**. 1부터 시작.
+   * 파트를 여러 개 담을 수 있게 된 뒤에도 남겨 둔다 — 이 필드만 읽는 옛 데이터·코드 호환용.
+   */
+  index: number;
+  /**
+   * 담은 파트 번호 전부 (오름차순). 하나만 담았으면 생략될 수 있다.
+   * **읽을 때는 항상 `partRangeIndices`를 쓴다** — `index`만 보면 2개 이상 담은 문제집에서
+   * 뒤쪽 파트를 놓친다.
+   */
+  indices?: number[];
+  /** 몇 등분했는지. 1이면 나누지 않은 것 */
+  total: number;
+};
+
+/** 이 조각이 담은 파트 번호 — 옛 데이터(`index`만 있음)도 함께 처리한다 */
+export function partRangeIndices(range: ProblemSetPartRange): number[] {
+  if (range.indices && range.indices.length > 0) {
+    return [...range.indices].sort((a, b) => a - b);
+  }
+  return [range.index];
+}
+
+/**
+ * 한 단원을 여러 수업에 나눠 낼 때의 파트 정보.
+ * **단어·문장·문법을 각각 따로** 나누므로 카테고리마다 등분 수와 파트 번호가 다를 수 있다.
+ */
+export type ProblemSetParts = {
+  words?: ProblemSetPartRange;
+  sentences?: ProblemSetPartRange;
+  grammar?: ProblemSetPartRange;
+};
+
+export const PART_CATEGORY_KEYS = ["words", "sentences", "grammar"] as const;
+
+export const PART_CATEGORY_LABEL: Record<
+  (typeof PART_CATEGORY_KEYS)[number],
+  string
+> = {
+  words: "단어",
+  sentences: "문장",
+  grammar: "문법",
+};
+
 export type SavedProblemSet = {
   id: string;
   title: string;
   grade: string;
   textbook: string;
   unit: string;
+  /** 카테고리를 나눠 낸 문제집이면 카테고리별로 몇 번째 조각인지 */
+  part?: ProblemSetParts;
   assignedClassIds: string[];
   items: ProblemSetItems;
   problemTypes: ProblemSetTypes;
@@ -59,12 +107,48 @@ export type CreateProblemSetInput = Omit<
   "id" | "title" | "favorite" | "createdAt" | "updatedAt"
 >;
 
+/**
+ * 목록·제목에 붙는 짧은 파트 라벨.
+ * 나눈 카테고리가 없으면 null, 파트 번호가 모두 같으면 `2파트`,
+ * 카테고리마다 다르면 `단어 2파트 · 문법 1파트`.
+ */
+export function problemSetPartLabel(part?: ProblemSetParts): string | null {
+  if (!part) return null;
+  const split = PART_CATEGORY_KEYS.map(
+    (key) => [key, part[key]] as const,
+  ).filter(
+    (entry): entry is [(typeof PART_CATEGORY_KEYS)[number], ProblemSetPartRange] =>
+      Boolean(entry[1]) && (entry[1] as ProblemSetPartRange).total > 1,
+  );
+  if (split.length === 0) return null;
+  const labels = split.map(
+    ([, range]) => `${partRangeIndices(range).join("·")}파트`,
+  );
+  // 카테고리마다 같은 파트를 냈으면 한 번만 — `· 1·2파트`
+  if (new Set(labels).size === 1) return labels[0];
+  return split
+    .map(([key], i) => `${PART_CATEGORY_LABEL[key]} ${labels[i]}`)
+    .join(" · ");
+}
+
 export function createProblemSetTitle(
   grade: string,
   textbook: string,
   unit: string,
+  part?: ProblemSetParts,
 ): string {
-  return `${grade} · ${textbook} · ${unit}`;
+  const base = `${grade} · ${textbook} · ${unit}`;
+  const label = problemSetPartLabel(part);
+  return label ? `${base} · ${label}` : base;
+}
+
+/** 같은 단원의 파트끼리 묶는 키 (학년·교과서·단원이 모두 같아야 한 단원) */
+export function problemSetUnitKey(problemSet: {
+  grade: string;
+  textbook: string;
+  unit: string;
+}): string {
+  return `${problemSet.grade}|${problemSet.textbook}|${problemSet.unit}`;
 }
 
 export function createProblemSet(input: CreateProblemSetInput): SavedProblemSet {
@@ -74,7 +158,12 @@ export function createProblemSet(input: CreateProblemSetInput): SavedProblemSet 
     id: `problem-set-${Date.now().toString(36)}-${Math.random()
       .toString(36)
       .slice(2, 7)}`,
-    title: createProblemSetTitle(input.grade, input.textbook, input.unit),
+    title: createProblemSetTitle(
+      input.grade,
+      input.textbook,
+      input.unit,
+      input.part,
+    ),
     favorite: false,
     createdAt: now,
     updatedAt: now,
@@ -116,6 +205,7 @@ export function updateProblemSet(
       | "grade"
       | "textbook"
       | "unit"
+      | "part"
       | "assignedClassIds"
       | "items"
       | "problemTypes"

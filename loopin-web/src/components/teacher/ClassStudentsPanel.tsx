@@ -16,19 +16,20 @@ type ClassStudentsPanelProps = {
 };
 
 type StudentFilter = "all" | "completed" | "inProgress" | "idle";
-type StudentSort = "recent" | "name";
+type StudentSort = "recent" | "streak" | "name";
 
-/** 아바타 배경·글자색 (브랜드 8색 라이트 톤) */
-const AVATAR_COLORS = [
-  { bg: "#E7F5FE", text: "#1274A9" },
-  { bg: "#F1E7FE", text: "#4212A9" },
-  { bg: "#FEE7E7", text: "#C52B2B" },
-  { bg: "#F2FEE7", text: "#6AA912" },
-  { bg: "#FEF9E7", text: "#A99A12" },
-  { bg: "#E7E8FE", text: "#1247A9" },
-  { bg: "#FEE7F7", text: "#A91279" },
-  { bg: "#E7FEFE", text: "#128DA9" },
-] as const;
+/** 헤더·행 공통 열 폭 — 위아래 정렬을 위해 동일 값 사용 */
+const COL = {
+  name: "w-[168px]",
+  status: "w-[84px]",
+  avgAccuracy: "w-[72px]",
+  firstAttempt: "w-[64px]",
+  latestAttempt: "w-[64px]",
+  submit: "w-[56px]",
+  streak: "w-[64px]",
+  last: "w-[96px]",
+  manage: "w-[44px]",
+} as const;
 
 function progressForStudent(
   rows: StudentProgressRow[],
@@ -143,10 +144,12 @@ export function ClassStudentsPanel({
           status: "idle" as const,
           progressPercent: 0,
           latestAccuracy: null,
+          averageAccuracy: null,
           firstScore: null,
           latestScore: null,
           submittedAt: null,
           lastLearnedAt: null,
+          studyStreakDays: 0,
         },
       };
     });
@@ -179,15 +182,24 @@ export function ClassStudentsPanel({
     }
     const q = query.trim();
     if (q) items = items.filter((e) => e.student.name.includes(q));
-    return sort === "name"
-      ? [...items].sort((a, b) =>
-          a.student.name.localeCompare(b.student.name, "ko"),
-        )
-      : [...items].sort((a, b) => {
-          const at = a.progress.lastLearnedAt ?? a.student.createdAt;
-          const bt = b.progress.lastLearnedAt ?? b.student.createdAt;
-          return bt.localeCompare(at);
-        });
+    if (sort === "name") {
+      return [...items].sort((a, b) =>
+        a.student.name.localeCompare(b.student.name, "ko"),
+      );
+    }
+    if (sort === "streak") {
+      return [...items].sort((a, b) => {
+        const diff =
+          (b.progress.studyStreakDays ?? 0) - (a.progress.studyStreakDays ?? 0);
+        if (diff !== 0) return diff;
+        return a.student.name.localeCompare(b.student.name, "ko");
+      });
+    }
+    return [...items].sort((a, b) => {
+      const at = a.progress.lastLearnedAt ?? a.student.createdAt;
+      const bt = b.progress.lastLearnedAt ?? b.student.createdAt;
+      return bt.localeCompare(at);
+    });
   }, [enriched, filter, query, sort]);
 
   const filterChips: {
@@ -343,25 +355,44 @@ export function ClassStudentsPanel({
             className="h-10 cursor-pointer rounded-[10px] border border-[#E5E7EB] bg-white px-3.5 text-[13px] font-medium text-[#6B7280] outline-none focus:border-[#1AA7F2]"
           >
             <option value="recent">정렬: 최근 학습순</option>
+            <option value="streak">정렬: 연속 학습순</option>
             <option value="name">정렬: 이름순</option>
           </select>
         </div>
       </div>
 
       <div className="mt-4 rounded-[14px] border border-[#EDEFF2] bg-white">
-        <div className="flex h-12 items-center gap-4 border-b border-[#EDEFF2] px-5 text-[12px] font-semibold text-[#9CA3AF]">
-          <span className="w-[170px]">이름</span>
-          <span className="w-[84px]">학습 현황</span>
+        <div className="flex h-12 items-center gap-3 border-b border-[#EDEFF2] px-5 text-[12px] font-semibold text-[#9CA3AF]">
+          <span className={`${COL.name} shrink-0`}>이름</span>
+          <span className={`${COL.status} shrink-0`}>학습 현황</span>
           <span
-            className="w-[120px] text-center"
-            title="완료한 학습의 첫 시도와 가장 최근 시도 평균 정답률"
+            className={`${COL.avgAccuracy} shrink-0 text-center`}
+            title="과제마다 마지막 시도 점수만 모아 평균 (중간 재도전 제외)"
           >
             평균 정답률
           </span>
-          <span className="w-[72px] text-center">제출률</span>
-          <span className="w-[110px] text-center">마지막 학습</span>
+          <span
+            className={`${COL.firstAttempt} shrink-0 text-center`}
+            title="가장 먼저 완료한 시도의 정답률"
+          >
+            첫 시도
+          </span>
+          <span
+            className={`${COL.latestAttempt} shrink-0 text-center`}
+            title="가장 최근 완료(또는 진행) 시도의 정답률"
+          >
+            최근 시도
+          </span>
+          <span className={`${COL.submit} shrink-0 text-center`}>제출률</span>
+          <span
+            className={`${COL.streak} shrink-0 text-center`}
+            title="오늘 또는 어제까지 이어진 학습 활동 연속 일수"
+          >
+            연속 학습
+          </span>
+          <span className={`${COL.last} shrink-0 text-center`}>마지막 학습</span>
           <span className="min-w-0 flex-1">메모</span>
-          <span className="w-[44px] shrink-0 text-right">관리</span>
+          <span className={`${COL.manage} shrink-0 text-right`}>관리</span>
         </div>
 
         {visibleStudents.length === 0 ? (
@@ -379,9 +410,8 @@ export function ClassStudentsPanel({
           </div>
         ) : (
           <ul>
-            {visibleStudents.map((item, index) => {
+            {visibleStudents.map((item) => {
               const { student, progress } = item;
-              const color = AVATAR_COLORS[index % AVATAR_COLORS.length];
               const statusLabel =
                 progress.status === "completed"
                   ? "완료"
@@ -407,22 +437,16 @@ export function ClassStudentsPanel({
                 lastAt && !Number.isNaN(lastAt.getTime())
                   ? `${lastAt.getMonth() + 1}/${lastAt.getDate()} ${String(lastAt.getHours()).padStart(2, "0")}:${String(lastAt.getMinutes()).padStart(2, "0")}`
                   : null;
+              const streakDays = progress.studyStreakDays ?? 0;
+              const streakLabel = streakDays > 0 ? `${streakDays}일` : "—";
               return (
                 <li
                   key={student.id}
-                  className="relative flex h-16 items-center gap-4 border-b border-[#F3F4F6] px-5 last:border-b-0"
+                  className="relative flex h-16 items-center gap-3 border-b border-[#F3F4F6] px-5 last:border-b-0"
                 >
-                  <span className="flex w-[190px] shrink-0 items-center gap-3">
-                    <span
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                      style={{ background: color.bg, color: color.text }}
-                      aria-hidden
-                    >
-                      {(editingNameId === student.id
-                        ? nameDraft.trim() || student.name
-                        : student.name
-                      ).slice(0, 1)}
-                    </span>
+                  <span
+                    className={`flex ${COL.name} shrink-0 items-center`}
+                  >
                     {editingNameId === student.id ? (
                       <input
                         autoFocus
@@ -479,7 +503,9 @@ export function ClassStudentsPanel({
                       </button>
                     )}
                   </span>
-                  <span className="w-[84px] shrink-0">
+                  <span
+                    className={`flex ${COL.status} shrink-0 items-center`}
+                  >
                     <span
                       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${statusClass}`}
                     >
@@ -491,28 +517,59 @@ export function ClassStudentsPanel({
                       {statusLabel}
                     </span>
                   </span>
-                  <span className="w-[120px] shrink-0 text-center">
-                    <span className="block text-[11px] font-medium text-[#9CA3AF]">
-                      첫 시도{" "}
-                      <span className="text-[#6B7280]">
-                        {progress.firstScore != null
-                          ? `${Math.round(progress.firstScore)}%`
-                          : "—"}
-                      </span>
-                    </span>
-                    <span className="mt-1 block text-[11px] font-medium text-[#9CA3AF]">
-                      최근 시도{" "}
-                      <span className="text-[#6B7280]">
-                        {progress.latestScore != null
-                          ? `${Math.round(progress.latestScore)}%`
-                          : "—"}
-                      </span>
-                    </span>
+                  <span
+                    className={`flex ${COL.avgAccuracy} shrink-0 items-center justify-center text-[13px] font-medium ${
+                      progress.averageAccuracy != null
+                        ? "text-[#6B7280]"
+                        : "text-[#C3C7CD]"
+                    }`}
+                  >
+                    {progress.averageAccuracy != null
+                      ? `${Math.round(progress.averageAccuracy)}%`
+                      : "—"}
                   </span>
-                  <span className="w-[72px] shrink-0 text-center text-[13px] font-medium text-[#6B7280]">
+                  <span
+                    className={`flex ${COL.firstAttempt} shrink-0 items-center justify-center text-[13px] font-medium ${
+                      progress.firstScore != null
+                        ? "text-[#6B7280]"
+                        : "text-[#C3C7CD]"
+                    }`}
+                  >
+                    {progress.firstScore != null
+                      ? `${Math.round(progress.firstScore)}%`
+                      : "—"}
+                  </span>
+                  <span
+                    className={`flex ${COL.latestAttempt} shrink-0 items-center justify-center text-[13px] font-medium ${
+                      progress.latestScore != null
+                        ? "text-[#6B7280]"
+                        : "text-[#C3C7CD]"
+                    }`}
+                  >
+                    {progress.latestScore != null
+                      ? `${Math.round(progress.latestScore)}%`
+                      : "—"}
+                  </span>
+                  <span
+                    className={`flex ${COL.submit} shrink-0 items-center justify-center text-[13px] font-medium text-[#6B7280]`}
+                  >
                     {progress.progressPercent}%
                   </span>
-                  <span className="w-[110px] shrink-0 text-center">
+                  <span
+                    className={`flex ${COL.streak} shrink-0 items-center justify-center text-[13px] font-medium ${
+                      streakDays > 0 ? "text-[#6B7280]" : "text-[#C3C7CD]"
+                    }`}
+                    title={
+                      streakDays > 0
+                        ? `${streakDays}일 연속 학습`
+                        : "연속 학습 없음"
+                    }
+                  >
+                    {streakLabel}
+                  </span>
+                  <span
+                    className={`flex ${COL.last} shrink-0 flex-col items-center justify-center leading-tight`}
+                  >
                     {lastLabel ? (
                       <>
                         <span className="block text-[13px] font-medium text-[#6B7280]">
@@ -533,7 +590,7 @@ export function ClassStudentsPanel({
                       </>
                     )}
                   </span>
-                  <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-1 items-center">
                     <input
                       type="text"
                       value={student.memo ?? ""}
@@ -546,7 +603,9 @@ export function ClassStudentsPanel({
                       className="h-9 w-full rounded-[10px] border border-transparent bg-transparent px-2 text-[13px] text-[#4B5563] outline-none placeholder:text-[#C3C7CD] hover:border-[#E5E7EB] focus:border-[#1AA7F2] focus:bg-white"
                     />
                   </span>
-                  <span className="flex w-[44px] justify-end">
+                  <span
+                    className={`flex ${COL.manage} shrink-0 items-center justify-end`}
+                  >
                     <button
                       type="button"
                       data-student-menu

@@ -118,7 +118,8 @@ export function PreviewModal({
   if (!target) return null;
 
   const sections = buildSections(target);
-  const horizontalScroll = target.kind === "word";
+  /** 단어 여러 유형 · 문법 X(OX+교정)처럼 폰이 둘 이상이면 가로로 나란히 */
+  const horizontalScroll = sections.length > 1;
 
   return (
     <div
@@ -130,11 +131,7 @@ export function PreviewModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`flex max-h-[97vh] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)] ${
-          horizontalScroll
-            ? "w-[min(1400px,98vw)] max-w-[min(1400px,98vw)]"
-            : "w-fit max-w-[min(1400px,98vw)]"
-        }`}
+        className="flex w-fit max-h-[97vh] max-w-[min(1400px,98vw)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#F0F1F3] px-5 py-2.5">
@@ -184,13 +181,7 @@ export function PreviewModal({
               </p>
             </div>
           ) : (
-            <div
-              className={`flex flex-nowrap items-start gap-3 ${
-                horizontalScroll
-                  ? "w-max min-w-full justify-start"
-                  : "justify-center"
-              }`}
-            >
+            <div className="flex w-max flex-nowrap items-start justify-center gap-3">
               {sections.map((section, index) => (
                 <SectionCard key={`${section.kind}-${index}`} section={section} />
               ))}

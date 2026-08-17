@@ -10,31 +10,33 @@ import type {
 import { CUSTOM_PROBLEM_TYPE_OPTIONS } from "@/lib/ai/sentence-problem-types";
 import {
   formatChunkLine,
+  looksLikeAdjective,
   splitEnglishChunksPhrase,
   splitKoreanChunksPhrase,
 } from "@/lib/ai/phrase-chunks";
-import { inferWordMeaningFromSentence } from "@/lib/ai/infer-word-meaning";
+import {
+  resolveWordMeaningPipeline,
+  toKoreanAttributive,
+} from "@/lib/ai/resolve-word-meaning";
+import { clearTranslateCache } from "@/lib/ai/translate-en-ko";
+import { clearWiktionaryGlossCache } from "@/lib/ai/wiktionary-ko-glosses";
 
 /**
  * 문장·단어 분석 서비스.
- * 문장 뜻은 사용자 입력. 단어 뜻은 사전 + 문장 뜻 정렬 유추(API 없음).
- * 실 API 연결 시 `fetchAnalyzeFromApi`만 교체하면 된다.
+ * 문장 뜻은 사용자 입력.
+ * 단어 뜻: Wiktionary 한국어 gloss → 문장 뜻 매칭 → (없으면) 핵심 뜻 → 교사가 표에서 수정.
  */
 
 const analysisCache = new Map<string, WordAnalysis>();
 
 function cacheKey(req: AnalyzeWordRequest): string {
   return [
-    "v3",
+    "v9-adjective-form",
     req.sentence.trim().toLowerCase(),
     req.surface.trim().toLowerCase(),
     String(req.wordIndex),
     (req.translationKo ?? "").trim(),
   ].join("||");
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** 흔한 단어 목업 사전 — 없으면 휴리스틱 */
@@ -146,10 +148,60 @@ const MOCK_LEXICON: Record<
   whenever: { lemma: "whenever", meaningKo: "~할 때마다", pos: "conjunction" },
   need: { lemma: "need", meaningKo: "필요하다", pos: "verb" },
   support: { lemma: "support", meaningKo: "도움", pos: "noun" },
+  // 복합 대명사·부사 (-thing/-one/-body/-where) — -ing 어간 규칙에 걸리면 everyth 등으로 깨짐
+  everything: { lemma: "everything", meaningKo: "모든 것", pos: "pronoun" },
+  something: { lemma: "something", meaningKo: "무언가", pos: "pronoun" },
+  anything: { lemma: "anything", meaningKo: "무엇이든", pos: "pronoun" },
+  nothing: { lemma: "nothing", meaningKo: "아무것도", pos: "pronoun" },
+  everyone: { lemma: "everyone", meaningKo: "모두", pos: "pronoun" },
+  someone: { lemma: "someone", meaningKo: "누군가", pos: "pronoun" },
+  anyone: { lemma: "anyone", meaningKo: "누구든", pos: "pronoun" },
+  noone: { lemma: "no one", meaningKo: "아무도", pos: "pronoun" },
+  everybody: { lemma: "everybody", meaningKo: "모두", pos: "pronoun" },
+  somebody: { lemma: "somebody", meaningKo: "누군가", pos: "pronoun" },
+  anybody: { lemma: "anybody", meaningKo: "누구든", pos: "pronoun" },
+  nobody: { lemma: "nobody", meaningKo: "아무도", pos: "pronoun" },
+  everywhere: { lemma: "everywhere", meaningKo: "어디에나", pos: "adverb" },
+  somewhere: { lemma: "somewhere", meaningKo: "어딘가", pos: "adverb" },
+  anywhere: { lemma: "anywhere", meaningKo: "어디에든", pos: "adverb" },
+  nowhere: { lemma: "nowhere", meaningKo: "어디에도", pos: "adverb" },
 };
+
+/**
+ * every/some/any/no + thing|one|body|where 닫힌 부류.
+ * `everything`이 -ing 제거로 `everyth`가 되는 것을 막는다.
+ */
+const CLOSED_CLASS_COMPOUNDS = new Set([
+  "everything",
+  "something",
+  "anything",
+  "nothing",
+  "everyone",
+  "someone",
+  "anyone",
+  "noone",
+  "no-one",
+  "everybody",
+  "somebody",
+  "anybody",
+  "nobody",
+  "everywhere",
+  "somewhere",
+  "anywhere",
+  "nowhere",
+]);
+
+function closedClassLemma(lower: string): string | null {
+  if (!CLOSED_CLASS_COMPOUNDS.has(lower)) return null;
+  if (lower === "noone" || lower === "no-one") return "no one";
+  return lower;
+}
 
 function guessPos(surface: string): PartOfSpeech {
   const lower = surface.toLowerCase();
+  if (CLOSED_CLASS_COMPOUNDS.has(lower)) {
+    return /(?:where)$/.test(lower) ? "adverb" : "pronoun";
+  }
   if (lower.endsWith("ly") && lower.length > 3) return "adverb";
   if (lower.endsWith("ing") || lower.endsWith("ed")) return "verb";
   if (lower.endsWith("tion") || lower.endsWith("ness") || lower.endsWith("ment"))
@@ -302,7 +354,149 @@ const IRREGULAR_LEMMAS: Record<string, string> = {
   dreams: "dream",
   dreaming: "dream",
   skills: "skill",
+  // 아래 동사들은 과거형이 `-ed`로 끝나지 않아 규칙으로는 원형이 안 나온다
+  // (`held`는 `ld`로 끝나 어떤 접미사 규칙에도 안 걸려 그대로 남았다)
+  held: "hold",
+  holds: "hold",
+  holding: "hold",
+  heard: "hear",
+  hears: "hear",
+  hearing: "hear",
+  sold: "sell",
+  sells: "sell",
+  selling: "sell",
+  sent: "send",
+  sends: "send",
+  sending: "send",
+  spent: "spend",
+  spends: "spend",
+  spending: "spend",
+  slept: "sleep",
+  sleeps: "sleep",
+  sleeping: "sleep",
+  fed: "feed",
+  feeds: "feed",
+  feeding: "feed",
+  led: "lead",
+  leads: "lead",
+  leading: "lead",
+  rode: "ride",
+  ridden: "ride",
+  rides: "ride",
+  riding: "ride",
+  drove: "drive",
+  driven: "drive",
+  drives: "drive",
+  driving: "drive",
+  broke: "break",
+  broken: "break",
+  breaks: "break",
+  breaking: "break",
+  drew: "draw",
+  drawn: "draw",
+  draws: "draw",
+  fell: "fall",
+  fallen: "fall",
+  falls: "fall",
+  falling: "fall",
+  flew: "fly",
+  flown: "fly",
+  flies: "fly",
+  flying: "fly",
+  forgot: "forget",
+  forgotten: "forget",
+  forgets: "forget",
+  forgetting: "forget",
+  froze: "freeze",
+  frozen: "freeze",
+  freezes: "freeze",
+  freezing: "freeze",
+  grew: "grow",
+  grown: "grow",
+  grows: "grow",
+  growing: "grow",
+  hid: "hide",
+  hidden: "hide",
+  hides: "hide",
+  hiding: "hide",
+  sang: "sing",
+  sung: "sing",
+  sings: "sing",
+  singing: "sing",
+  swam: "swim",
+  swum: "swim",
+  swims: "swim",
+  swimming: "swim",
+  threw: "throw",
+  thrown: "throw",
+  throws: "throw",
+  throwing: "throw",
+  wore: "wear",
+  worn: "wear",
+  wears: "wear",
+  wearing: "wear",
+  won: "win",
+  wins: "win",
+  winning: "win",
+  drank: "drink",
+  drunk: "drink",
+  drinks: "drink",
+  drinking: "drink",
+  ate: "eat",
+  eaten: "eat",
+  eats: "eat",
+  eating: "eat",
+  fought: "fight",
+  fights: "fight",
+  fighting: "fight",
+  paid: "pay",
+  pays: "pay",
+  paying: "pay",
+  stole: "steal",
+  stolen: "steal",
+  steals: "steal",
+  stealing: "steal",
+  dealt: "deal",
+  deals: "deal",
+  dealing: "deal",
+  shown: "show",
+  showed: "show",
+  shows: "show",
+  showing: "show",
+  rose: "rise",
+  risen: "rise",
+  rises: "rise",
+  rising: "rise",
+  // FLOSS 규칙의 예외 — 원형이 이미 `dd`로 끝나 겹침 제거 규칙에 걸린다
+  added: "add",
+  adds: "add",
+  adding: "add",
 };
+
+/**
+ * `-s`로 끝나지만 복수·3인칭이 **아닌** 어미.
+ * 이게 없으면 `various → variou`, `famous → famou` 처럼 멀쩡한 단어가 깎인다.
+ */
+const NON_PLURAL_S_ENDING = /(?:ous|ss|us|is|as|ics|sis)$/;
+
+/**
+ * `-ed`를 뗀 어간에 묵음 e를 되돌린다 — `liked → lik` 이 아니라 `like` 가 되도록.
+ *
+ * 어간만 보고는 원형이 `e`로 끝났는지 알 수 없어(`looked→look` vs `liked→like`)
+ * 확실한 단서가 있을 때만 붙인다:
+ *   · 영어 단어는 `v`로 끝나지 않는다 → `mov` 는 반드시 `move`
+ *   · `c`/`z`, 그리고 `ss`가 아닌 `s` → dance, raise, use
+ *   · 자음+모음+자음 3글자 → lik(e), hop(e), nam(e). `ask`·`look`은 형태가 달라 안 걸린다
+ * `g`는 뺐다 — `chang(e)`와 `belong`이 같은 꼴이라 한쪽이 반드시 틀린다.
+ */
+function restoreSilentE(stem: string): string {
+  if (stem.length < 2) return stem;
+  if (/[vcz]$/.test(stem)) return `${stem}e`;
+  // 모음 + s → raise·use·close. `ss`는 앞 글자가 자음이라 자동으로 빠진다 (pass, miss)
+  if (/[aeiou]s$/.test(stem)) return `${stem}e`;
+  if (/^[^aeiou][aeiou][^aeiouwxy]$/.test(stem)) return `${stem}e`;
+  return stem;
+}
 
 /** 문장 속 활용형 → 동사·명사 원형 */
 export function toLemma(surface: string): string {
@@ -310,6 +504,8 @@ export function toLemma(surface: string): string {
   if (!lower) return surface;
   const hit = MOCK_LEXICON[lower];
   if (hit?.lemma) return hit.lemma;
+  const closed = closedClassLemma(lower);
+  if (closed) return closed;
   if (IRREGULAR_LEMMAS[lower]) return IRREGULAR_LEMMAS[lower]!;
 
   if (lower.endsWith("ies") && lower.length > 4) return `${lower.slice(0, -3)}y`;
@@ -317,8 +513,10 @@ export function toLemma(surface: string): string {
   if (lower.endsWith("ying") && lower.length > 5)
     return `${lower.slice(0, -4)}ie`;
   // stopped → stop, planned → plan
-  if (/(.)\1(?:ed|ing)$/.test(lower) && lower.length > 5) {
-    return lower.replace(/(.)\1(?:ed|ing)$/, "$1");
+  // f·l·s·z 는 영어 단어 끝에서 원래 겹친다(FLOSS 규칙) — `pass`·`fill` 은 그 자체가
+  // 원형이라 겹침을 풀면 `pas`·`fil` 이 된다. 실제로 겹쳐 쓰는 자음만 대상으로 한다.
+  if (/([bcdgkmnprt])\1(?:ed|ing)$/.test(lower) && lower.length > 5) {
+    return lower.replace(/([bcdgkmnprt])\1(?:ed|ing)$/, "$1");
   }
   if (lower.endsWith("ing") && lower.length > 5) {
     const stem = lower.slice(0, -3);
@@ -334,9 +532,13 @@ export function toLemma(surface: string): string {
   if (lower.endsWith("ed") && lower.length > 3) {
     const stem = lower.slice(0, -2);
     if (stem.endsWith("i")) return `${stem.slice(0, -1)}y`;
-    return stem;
+    return restoreSilentE(stem);
   }
-  if (lower.endsWith("s") && lower.length > 3 && !lower.endsWith("ss"))
+  if (
+    lower.endsWith("s") &&
+    lower.length > 3 &&
+    !NON_PLURAL_S_ENDING.test(lower)
+  )
     return lower.slice(0, -1);
   return lower;
 }
@@ -351,10 +553,14 @@ export function buildSentenceAnalysis(params: {
   english: string;
   translationKo: string;
   wordMeanings?: string[];
+  /** 쪼개면 안 되는 숙어(여러 단어짜리 어휘). 단원 어휘가 있으면 넘긴다. */
+  idioms?: string[];
 }): SentenceAnalysis {
   const english = params.english.trim();
   const translationKo = params.translationKo.trim();
-  const chunksEn = formatChunkLine(splitEnglishChunksPhrase(english));
+  const chunksEn = formatChunkLine(
+    splitEnglishChunksPhrase(english, params.idioms ?? []),
+  );
   const hasHangul = /[\uac00-\ud7a3]/.test(translationKo);
   const chunksKo = hasHangul
     ? formatChunkLine(splitKoreanChunksPhrase(translationKo))
@@ -371,65 +577,63 @@ export function buildSentenceAnalysis(params: {
   };
 }
 
-function isWeakInferredMeaning(meaning: string): boolean {
-  const s = meaning.trim();
-  if (!s) return true;
-  if (s.length > 18) return true;
-  if (/(습니다|ㅂ니다|어요|아요|예요|이에요)$/u.test(s)) return true;
-  if (/^(우리|나는|그는|그녀는|그들은)$/u.test(s)) return true;
-  return false;
-}
-
-function resolveWordMeaning(
-  req: AnalyzeWordRequest,
-  lexiconMeaning?: string,
-): string {
-  if (lexiconMeaning) return lexiconMeaning;
-
+async function buildWordAnalysis(req: AnalyzeWordRequest): Promise<WordAnalysis> {
+  const key = req.surface.toLowerCase();
+  const surfaceHit = MOCK_LEXICON[key];
+  const lemma = surfaceHit?.lemma ?? guessLemma(req.surface);
+  const hit = surfaceHit ?? MOCK_LEXICON[lemma.toLowerCase()];
   const translationKo = (req.translationKo ?? "").trim();
-  const inferred = inferWordMeaningFromSentence({
+  const resolved = await resolveWordMeaningPipeline({
     surface: req.surface,
+    lemma,
     sentence: req.sentence,
     translationKo,
+    lexiconMeaning: hit?.meaningKo,
   });
+  const guessed = guessPos(req.surface);
+  const pos = hit?.pos ?? guessed;
 
-  if (inferred && !isWeakInferredMeaning(inferred)) return inferred;
-  return translationKo ? "문맥에 맞게 수정하세요" : `${req.surface} (뜻 입력)`;
-}
-
-function buildMockAnalysis(req: AnalyzeWordRequest): WordAnalysis {
-  const key = req.surface.toLowerCase();
-  const hit = MOCK_LEXICON[key];
-  const lemma = hit?.lemma ?? guessLemma(req.surface);
-  const meaningKo = resolveWordMeaning(req, hit?.meaningKo);
-  const pos = hit?.pos ?? guessPos(req.surface);
+  /**
+   * 교과서 단어장은 형용사를 관형형으로 싣는다(`various 다양한`, `heavy 무거운`).
+   * 사전은 기본형(`다양하다`)을 주므로 형용사일 때만 바꿔 준다.
+   *
+   * 품사 판단은 어휘 사전(`hit.pos`)을 최우선으로 보고, 없으면 청크 엔진의
+   * 형용사 판별을 쓴다 — `guessPos`는 `heavy`·`light`를 놓친다.
+   * 다만 활용형(`-ed`/`-ing`)이면 동사로 보고 건드리지 않는다.
+   */
+  const isAdjective = hit?.pos
+    ? hit.pos === "adjective"
+    : guessed !== "verb" && looksLikeAdjective(req.surface);
+  const shape = (meaning: string) =>
+    isAdjective ? toKoreanAttributive(meaning) : meaning;
 
   return {
     id: `${req.sentenceIndex}:${req.wordIndex}`,
     sentenceIndex: req.sentenceIndex,
     wordIndex: req.wordIndex,
     surface: req.surface,
-    lemma,
-    meaningKo,
+    lemma: hit?.lemma ?? lemma,
+    meaningKo: shape(resolved.meaningKo),
     pos,
+    needsReview: resolved.needsReview,
+    candidates: resolved.candidates.map(shape),
     sourceSentence: req.sentence,
-    translationKo: (req.translationKo ?? "").trim(),
+    translationKo,
   };
 }
 
 /**
- * 실 API 자리 — 나중에 fetch/SDK로 교체.
- * 목업은 실패 시뮬레이션용으로 `forceFail`을 쓸 수 있다.
+ * 단어 분석 — Wiktionary/사전/번역 파이프라인.
+ * `forceFail`은 실패 UI 점검용.
  */
 async function fetchAnalyzeFromApi(
   req: AnalyzeWordRequest,
   opts?: { forceFail?: boolean },
 ): Promise<WordAnalysis> {
-  await sleep(700 + Math.floor(Math.random() * 500));
   if (opts?.forceFail) {
     throw new Error("AI 분석에 실패했어요. 잠시 후 다시 시도해 주세요.");
   }
-  return buildMockAnalysis(req);
+  return buildWordAnalysis(req);
 }
 
 /** 캐시를 먼저 보고, 없으면 AI(목업) 호출 */
@@ -471,6 +675,8 @@ export async function analyzeSelectedWord(
 /** 테스트·디버그용 캐시 비우기 */
 export function clearSentenceAnalysisCache(): void {
   analysisCache.clear();
+  clearWiktionaryGlossCache();
+  clearTranslateCache();
 }
 
 export function buildProblemsFromSelection(params: {

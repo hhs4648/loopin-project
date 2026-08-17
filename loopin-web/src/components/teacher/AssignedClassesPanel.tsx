@@ -102,12 +102,12 @@ export function AssignedClassesPanel({
 
   return (
     <div
-      className="absolute z-[16] flex flex-col"
+      className="absolute z-[16] flex flex-col overflow-y-auto"
       style={{
         left: 0,
         top: 200,
         width: 238.93,
-        minHeight: 300,
+        maxHeight: 600,
         backgroundColor: "#F8F8F7",
         padding: "0 16px 8px",
       }}

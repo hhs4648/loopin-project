@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FigmaHotspot } from "@/components/figma/types";
 import { AssignedClassesPanel } from "@/components/teacher/AssignedClassesPanel";
+import { AssignAssignmentPanel } from "@/components/teacher/AssignAssignmentPanel";
 import { CalendarAcademicButton } from "@/components/teacher/CalendarAcademicButton";
 import { CalendarAcademicScheduleModal } from "@/components/teacher/CalendarAcademicScheduleModal";
 import { CalendarClassLegend } from "@/components/teacher/CalendarClassLegend";
@@ -43,6 +44,7 @@ import { SchoolSettingsPanel } from "@/components/teacher/SchoolSettingsPanel";
 import { SidebarBrandHeader } from "@/components/teacher/SidebarBrandHeader";
 import { TeacherSidebarChrome } from "@/components/teacher/TeacherSidebarChrome";
 import { TeacherSidebarFooter } from "@/components/teacher/TeacherSidebarFooter";
+import { VocabBuilderPanel } from "@/components/teacher/VocabBuilderPanel";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 import { type ClassTabId, classTabHref } from "@/lib/class-tabs";
 import {
@@ -110,8 +112,11 @@ import {
   fetchClassEnrollments,
   mergeEnrolledStudents,
   migrateLocalDataOnce,
+  restoreRemoteOnlyAssignments,
   subscribeClassRealtime,
+  syncLocalAssignmentsForClass,
   upsertTeacherClassRemote,
+  removeEnrollmentRemote,
 } from "@/lib/sync/teacher-sync";
 import {
   ensureTeacherSession,
@@ -134,6 +139,10 @@ type TeacherFigmaFrameProps = {
   newProblemSetSvg?: string;
   /** 사이드바 「설정」→ 내 설정 */
   mySettings?: boolean;
+  /** 사이드바 「단어장 만들기」 */
+  vocab?: boolean;
+  /** 과제 부여 전용 페이지 `/teacher/problems/assign` */
+  assignAssignment?: boolean;
   /** assets/praise-calendar-example.svg (내 설정 칭찬 캘린더 예시) */
   praiseCalendarExampleSvg?: string;
 };
@@ -150,6 +159,8 @@ export function TeacherFigmaFrame({
   problemsView,
   newProblemSetSvg = "",
   mySettings = false,
+  vocab = false,
+  assignAssignment = false,
   praiseCalendarExampleSvg = "",
 }: TeacherFigmaFrameProps) {
   const params = useParams();
@@ -270,6 +281,7 @@ export function TeacherFigmaFrame({
   useEffect(() => {
     if (!resolvedClassId || !isSyncEnabled()) return;
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const refreshRemote = async () => {
       const enrollments = await fetchClassEnrollments(resolvedClassId);
@@ -279,21 +291,65 @@ export function TeacherFigmaFrame({
       saveClassStudents(resolvedClassId, merged);
       setStudents(merged);
 
+      // 로컬에만 있던 부여분(silent publish 실패 등)을 서버에 맞춰 올림 → 학생 맵 성 활성화
+      await syncLocalAssignmentsForClass({
+        classId: resolvedClassId,
+        problemSets: loadProblemSets(),
+        assignments: loadClassAssignments(),
+      });
+      if (cancelled) return;
+
+      // 반대 방향 — 원격에만 있는 과제를 로컬 목록에 복원한다.
+      // 다른 브라우저·기기에서 냈거나 과거 삭제 실패로 남은 행은 교사 화면에
+      // 보이지 않는데 학생 앱에서는 성이 활성화된다. 목록에 띄워야 지울 수 있다.
+      // (올리기를 먼저 끝낸 뒤 읽으므로, 방금 지운 과제가 되살아나지 않는다.)
+      await restoreRemoteOnlyAssignments(resolvedClassId);
+      if (cancelled) return;
+
       const attempts = await fetchAttemptsForClass(resolvedClassId);
       if (cancelled) return;
-      setClassAttempts(attempts);
-      setProgressRefreshKey((k) => k + 1);
+      let attemptsChanged = true;
+      setClassAttempts((prev) => {
+        if (
+          prev.length === attempts.length &&
+          prev.every(
+            (row, i) =>
+              row.id === attempts[i]?.id &&
+              row.updatedAt === attempts[i]?.updatedAt &&
+              row.progressPercent === attempts[i]?.progressPercent &&
+              row.status === attempts[i]?.status &&
+              row.answeredCount === attempts[i]?.answeredCount &&
+              row.correctCount === attempts[i]?.correctCount,
+          )
+        ) {
+          attemptsChanged = false;
+          return prev;
+        }
+        return attempts;
+      });
+      if (attemptsChanged) {
+        setProgressRefreshKey((k) => k + 1);
+      }
+    };
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void refreshRemote();
+      }, 400);
     };
 
     void refreshRemote();
     const unsubscribe = subscribeClassRealtime(resolvedClassId, () => {
-      void refreshRemote();
+      scheduleRefresh();
     });
 
     const onFocus = () => void refreshRemote();
     window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
       unsubscribe();
       window.removeEventListener("focus", onFocus);
     };
@@ -325,6 +381,7 @@ export function TeacherFigmaFrame({
     };
   }, []);
 
+  /** 홈·진도용 — 반 전체 과제만 (개인 오답 복습 제외) */
   const classAssignments = useMemo(
     (): AssignedProblemView[] =>
       resolvedClassId
@@ -337,22 +394,41 @@ export function TeacherFigmaFrame({
     [problemSets, classAssignmentRecords, resolvedClassId],
   );
 
+  /** 과제 탭 — 오답만 다시 출제(개인) 포함 */
+  const classAssignmentsForTab = useMemo(
+    (): AssignedProblemView[] =>
+      resolvedClassId
+        ? getAssignedProblemsForClass(
+            problemSets,
+            classAssignmentRecords,
+            resolvedClassId,
+            { includePersonal: true },
+          )
+        : [],
+    [problemSets, classAssignmentRecords, resolvedClassId],
+  );
+
   useEffect(() => {
     if (!resolvedClassId) {
       setProgressByAssignment({});
       return;
     }
     const next: Record<string, StudentProgressRow[]> = {};
-    for (const view of classAssignments) {
+    for (const view of classAssignmentsForTab) {
+      const cohort = view.assignment.targetStudentId
+        ? students.filter(
+            (student) => student.id === view.assignment.targetStudentId,
+          )
+        : students;
       next[view.assignment.id] = buildStudentProgressRows(
-        students,
+        cohort,
         classAttempts,
         view.assignment.id,
       );
     }
     setProgressByAssignment(next);
   }, [
-    classAssignments,
+    classAssignmentsForTab,
     students,
     classAttempts,
     progressRefreshKey,
@@ -681,11 +757,29 @@ export function TeacherFigmaFrame({
   const handleRemoveStudent = useCallback(
     (id: string) => {
       if (!resolvedClassId) return;
-      setStudents((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        saveClassStudents(resolvedClassId, next);
-        return next;
-      });
+      const classId = resolvedClassId;
+      /*
+        **원격을 먼저 지운다.** 로컬만 지우면 잠시 뒤 `refreshRemote`가
+        `mergeEnrolledStudents`로 서버 값을 다시 합치면서 지운 학생이 되살아난다
+        — 「삭제가 안 된다」의 원인이었다(2026-08-11).
+
+        초대코드로 들어온 학생(`source: 'enrolled'`)만 서버에 행이 있고,
+        교사가 손으로 추가한 학생은 로컬뿐이라 원격 삭제가 no-op으로 지나간다.
+      */
+      void (async () => {
+        const result = await removeEnrollmentRemote({ classId, studentId: id });
+        if (!result.ok) {
+          window.alert(
+            "학생을 반에서 빼지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.",
+          );
+          return;
+        }
+        setStudents((prev) => {
+          const next = prev.filter((s) => s.id !== id);
+          saveClassStudents(classId, next);
+          return next;
+        });
+      })();
     },
     [resolvedClassId],
   );
@@ -769,7 +863,12 @@ export function TeacherFigmaFrame({
   const classScreen = Boolean(resolvedClassId && classTab);
   const problemsActive = problemsView != null;
   const calendarActive =
-    !classScreen && !schoolSettings && !problemsActive && !mySettings;
+    !classScreen &&
+    !schoolSettings &&
+    !problemsActive &&
+    !mySettings &&
+    !vocab &&
+    !assignAssignment;
 
   return (
     <main className="no-scrollbar flex min-h-screen items-center justify-center overflow-auto bg-white">
@@ -813,7 +912,10 @@ export function TeacherFigmaFrame({
           }
         />
 
-        <TeacherSidebarFooter mySettingsActive={mySettings} />
+        <TeacherSidebarFooter
+          mySettingsActive={mySettings}
+          vocabActive={vocab}
+        />
 
         {ready ? (
           <SidebarBrandHeader brand={savedBrand} teacherName={savedTeacherName} />
@@ -834,6 +936,9 @@ export function TeacherFigmaFrame({
             newProblemSetSvg={newProblemSetSvg}
           />
         ) : null}
+
+        {vocab ? <VocabBuilderPanel /> : null}
+        {assignAssignment ? <AssignAssignmentPanel /> : null}
 
         {mySettings ? (
           <MySettingsPanel
@@ -860,6 +965,8 @@ export function TeacherFigmaFrame({
               classes={classes}
               oneOffLessons={oneOffLessons}
               academicSchedule={academicSchedule}
+              assignments={classAssignmentRecords}
+              problemSets={problemSets}
             />
             {calendarView === "week" ? (
               <>
@@ -921,6 +1028,7 @@ export function TeacherFigmaFrame({
             classId={resolvedClassId}
             teacherClass={activeClass}
             assignments={classAssignments}
+            problemSets={problemSets}
             attempts={classAttempts}
             incompleteAssignmentCount={classAssignments.length}
             oneOffLessons={oneOffLessons}
@@ -931,12 +1039,13 @@ export function TeacherFigmaFrame({
 
         {classScreen && classTab === "assignments" ? (
           <ClassAssignmentsPanel
-            assignments={classAssignments}
+            assignments={classAssignmentsForTab}
             students={students}
             progressByAssignment={progressByAssignment}
             progressRefreshKey={progressRefreshKey}
             classLabel={activeClass?.name}
             teacherName={savedTeacherName}
+            teacherClass={activeClass ?? null}
           />
         ) : null}
 

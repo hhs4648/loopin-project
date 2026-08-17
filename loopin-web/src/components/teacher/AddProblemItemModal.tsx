@@ -15,15 +15,17 @@ import {
   upsertCustomSentence,
   upsertCustomWord,
 } from "@/lib/custom-problem-bank";
+import { getUnitIdioms } from "@/lib/problem-bank";
 import type {
   ProblemGrammar,
   ProblemSentence,
   ProblemWord,
 } from "@/lib/problem-bank";
 import {
-  splitEnglishChunks,
-  splitKoreanChunks,
-} from "@/lib/problem-bank";
+  formatChunkLine,
+  splitEnglishChunksPhrase,
+  splitKoreanChunksPhrase,
+} from "@/lib/ai/phrase-chunks";
 import { validateProblemItemInput } from "@/lib/validate-problem-item";
 
 export type AddProblemKind = "word" | "sentence" | "grammar";
@@ -429,7 +431,15 @@ export function AddProblemItemModal({
                           setError("영어 예문을 먼저 입력해 주세요.");
                           return;
                         }
-                        setChunksEn(splitEnglishChunks(source).join(" / "));
+                        setChunksEn(
+                          formatChunkLine(
+                            // 이 단원 어휘에 있는 숙어는 쪼개지 않는다
+                            splitEnglishChunksPhrase(
+                              source,
+                              getUnitIdioms(scope),
+                            ),
+                          ),
+                        );
                         if (error) setError("");
                       }}
                       className="shrink-0 rounded-[7px] border border-[#BAE6FD] bg-[#F0F9FF] px-2 py-0.5 text-[11px] font-semibold text-[#1274A9] hover:border-[#1AA7F2] hover:bg-[#E0F2FE]"
@@ -458,7 +468,9 @@ export function AddProblemItemModal({
                           setError("한글 뜻을 먼저 입력해 주세요.");
                           return;
                         }
-                        setChunksKo(splitKoreanChunks(source).join(" / "));
+                        setChunksKo(
+                          formatChunkLine(splitKoreanChunksPhrase(source)),
+                        );
                         if (error) setError("");
                       }}
                       className="shrink-0 rounded-[7px] border border-[#BAE6FD] bg-[#F0F9FF] px-2 py-0.5 text-[11px] font-semibold text-[#1274A9] hover:border-[#1AA7F2] hover:bg-[#E0F2FE]"
@@ -550,7 +562,7 @@ export function AddProblemItemModal({
                         placeholder="정답을 맨 앞에 · that / which / what"
                       />
                       <p className="mt-1 text-[11px] font-medium text-[#9CA3AF]">
-                        첫 항목이 정답 · `/`로 구분
+                        3개 필수 · 첫 항목이 정답 · `/`로 구분
                       </p>
                     </div>
                   </>

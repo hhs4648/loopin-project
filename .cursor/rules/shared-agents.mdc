@@ -1,0 +1,28 @@
+---
+description: 에이전트 공용 규칙은 AGENTS.md가 단일 소스 — Cursor·Claude Code 공통
+alwaysApply: true
+---
+
+# 공용 규칙은 `AGENTS.md`에 있다
+
+이 리포는 **Cursor와 Claude Code가 같이** 작업한다. 두 도구가 서로 다른 규칙을 보지 않도록
+규칙을 한 파일에 모아 두었다.
+
+## 작업 시작 전 반드시 읽을 것
+
+- `loopin-web/AGENTS.md` — 교사 웹의 전체 규칙 (명령어, 아키텍처, 디자인 제약, 학생앱과 맞물리는 부분)
+- `uiux.md` §2.3 — 버튼·이동 맵
+- `figma.md` — `assets/`의 Figma 익스포트 사용 규칙
+
+`loopin-web/CLAUDE.md`는 `@AGENTS.md`를 임포트하는 껍데기다. 내용을 찾으러 가지 말 것.
+
+## 규칙을 바꿀 때
+
+**`AGENTS.md`만 고친다.** `CLAUDE.md`에 내용을 복사해 넣으면 두 도구가 다른 규칙을 읽게 된다.
+`AGENTS.md` 맨 위 `BEGIN/END:nextjs-agent-rules` 블록은 자동 생성 구간이니 건드리지 않는다.
+
+## 다른 에이전트와 같은 워킹트리를 쓴다
+
+- 파일을 고치기 전에 이미 수정돼 있는지 확인한다 (`git status`, 파일 상단 주석).
+- 커밋되지 않은 남의 변경을 되돌리거나 덮어쓰지 않는다.
+- 큰 리팩터링 전에는 사용자에게 먼저 알린다.

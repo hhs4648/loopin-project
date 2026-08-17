@@ -109,10 +109,13 @@ export function buildContentSnapshot(
     return buildCustomDraftSnapshot(input, input.customDraft);
   }
 
+  // 예전 오답 재출제가 unit에 `· 오답`을 붙여 저장한 경우가 있다.
+  // 문제은행 조회 키만 원래 단원명으로 되돌린다 (스냅샷 unit 표기는 그대로).
+  const bankUnit = input.unit.replace(/\s·\s오답(?:\s.*)?$/, "").trim();
   const unit = getUnitContent({
     grade: input.grade,
     textbook: input.textbook,
-    unit: input.unit,
+    unit: bankUnit || input.unit,
   });
   const wordIds = new Set(input.items.words);
   const sentenceIds = new Set(input.items.sentences);
@@ -150,6 +153,9 @@ export function buildContentSnapshot(
       wrongPart: g.wrongPart,
       choices: g.choices,
       explanation: g.explanation,
+      // 학생앱 복습 탭의 유형(문법 개념)별 정답률 집계용 — 비어 있으면 담지 않는다.
+      major: g.major?.trim() || undefined,
+      minor: g.minor?.trim() || undefined,
     }));
 
   return {

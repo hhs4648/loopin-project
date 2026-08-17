@@ -34,7 +34,18 @@ export type WordAnalysis = {
   lemma: string;
   /** 문맥에 맞는 한국어 뜻 */
   meaningKo: string;
+  /**
+   * Wiktionary 등에서 모은 한국어 뜻 전체.
+   * 필수 단어 칩 hover에 `언어 · 말 · 용어` 형태로 표시.
+   */
   pos: PartOfSpeech;
+  /**
+   * 예문과 대조해 고른 뜻이 아니라 대표 뜻으로 때운 경우 `true`.
+   * 표에서 「확인 필요」로 표시하고 후보를 보여 준다.
+   */
+  needsReview?: boolean;
+  /** 교사가 바로 고를 수 있는 대표 뜻 (최대 3개) */
+  candidates?: string[];
   sourceSentence: string;
   translationKo: string;
 };

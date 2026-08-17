@@ -281,62 +281,74 @@ export function buildBodyTextCPreview(item: ProblemSentence): PreviewSection {
 
 // --- grammar ---
 
-export function buildGrammarOxPreview(item: ProblemGrammar): PreviewSection {
+/**
+ * OX 미리보기.
+ * 정답이 X이고 교정(3지선다)이 만들어지면 **폰 두 개**로 나란히 보여 주려고
+ * 섹션을 둘로 나눈다 — 학생앱에선 이어지지만, 미리보기에선 한눈에 보고 싶다.
+ */
+export function buildGrammarOxPreview(item: ProblemGrammar): PreviewSection[] {
   const ox = item.ox?.trim().toUpperCase();
   if (ox !== "O" && ox !== "X") {
-    return {
-      kind: "unavailable",
-      label: "OX문제",
-      reason: "O/X 정답 값이 있어야 해요.",
-    };
+    return [
+      {
+        kind: "unavailable",
+        label: "OX문제",
+        reason: "O/X 정답 값이 있어야 해요.",
+      },
+    ];
   }
 
   const correctOptionId = ox === "O" ? "o" : "x";
-  const steps: GrammarType2Step[] = [
-    {
-      kind: "ox",
-      id: `${item.id}:ox`,
-      maskPassage: true,
-      passageLines: [stripBrackets(item.english)],
-      correctOptionId,
-    },
+  const oxStep: GrammarType2Step = {
+    kind: "ox",
+    id: `${item.id}:ox`,
+    maskPassage: true,
+    passageLines: [stripBrackets(item.english)],
+    correctOptionId,
+  };
+  const sections: PreviewSection[] = [
+    { kind: "grammar-ox", label: "OX문제", steps: [oxStep] },
   ];
 
-  if (correctOptionId === "x") {
-    const target = item.wrongPart?.trim();
-    const english = stripBrackets(item.english);
-    const targetIndex = target
-      ? english.toLowerCase().indexOf(target.toLowerCase())
-      : -1;
-    const choices = parseGrammarChoices(item.choices);
+  if (correctOptionId !== "x") return sections;
 
-    if (target && targetIndex >= 0 && choices.length >= 3) {
-      const matchedPart = english.slice(targetIndex, targetIndex + target.length);
-      const before = english.slice(0, targetIndex);
-      const after = english.slice(targetIndex + target.length);
-      const correct = choices[0]!;
-      const options = shuffle(choices.slice(0, 3)).map((label, index) => ({
-        id: `${item.id}:ox-fix:${index}:${label}`,
-        label,
-      }));
-      const correctOption = options.find((option) => option.label === correct);
+  const target = item.wrongPart?.trim();
+  const english = stripBrackets(item.english);
+  const targetIndex = target
+    ? english.toLowerCase().indexOf(target.toLowerCase())
+    : -1;
+  const choices = parseGrammarChoices(item.choices);
 
-      if (correctOption) {
-        steps.push({
-          kind: "word-choice",
-          id: `${item.id}:ox-fix`,
-          options,
-          correctOptionId: correctOption.id,
-          maskPassage: true,
-          passageBefore: before.trimEnd(),
-          wrongPart: matchedPart,
-          passageAfter: after.trimStart(),
-        });
-      }
-    }
-  }
+  if (!target || targetIndex < 0 || choices.length < 3) return sections;
 
-  return { kind: "grammar-ox", label: "OX문제", steps };
+  const matchedPart = english.slice(targetIndex, targetIndex + target.length);
+  const before = english.slice(0, targetIndex);
+  const after = english.slice(targetIndex + target.length);
+  const correct = choices[0]!;
+  const options = shuffle(choices.slice(0, 3)).map((label, index) => ({
+    id: `${item.id}:ox-fix:${index}:${label}`,
+    label,
+  }));
+  const correctOption = options.find((option) => option.label === correct);
+  if (!correctOption) return sections;
+
+  sections.push({
+    kind: "grammar-ox",
+    label: "교정 문제",
+    steps: [
+      {
+        kind: "word-choice",
+        id: `${item.id}:ox-fix`,
+        options,
+        correctOptionId: correctOption.id,
+        maskPassage: true,
+        passageBefore: before.trimEnd(),
+        wrongPart: matchedPart,
+        passageAfter: after.trimStart(),
+      },
+    ],
+  });
+  return sections;
 }
 
 export function buildGrammarChoicePreview(
@@ -354,7 +366,11 @@ export function buildGrammarChoicePreview(
     return null;
   }
 
-  const [before, after = ""] = item.english.split(target);
+  // target이 두 번 이상 나오면 split은 세 번째 조각부터 버린다 → 첫 출현 위치에서만 자른다.
+  const targetIndex = item.english.indexOf(target);
+  if (targetIndex < 0) return null;
+  const before = item.english.slice(0, targetIndex);
+  const after = item.english.slice(targetIndex + target.length);
   const correct = choices[0]!;
   const options = shuffle(choices).map((label, index) => ({
     id: `${item.id}:opt:${index}:${label}`,
@@ -439,7 +455,9 @@ export function buildGrammarPreviewSections(
   checkedTypes: string[],
 ): PreviewSection[] {
   const sections: PreviewSection[] = [];
-  if (checkedTypes.includes("OX문제")) sections.push(buildGrammarOxPreview(item));
+  if (checkedTypes.includes("OX문제")) {
+    sections.push(...buildGrammarOxPreview(item));
+  }
   if (checkedTypes.includes("선택형 문제")) {
     const choice = buildGrammarChoicePreview(item);
     if (choice) sections.push(choice);

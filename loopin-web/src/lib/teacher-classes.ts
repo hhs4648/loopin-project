@@ -98,7 +98,7 @@ export const WEEKDAYS: { id: Weekday; label: string }[] = [
   { id: "sun", label: "일" },
 ];
 
-const WEEKDAY_ORDER: Weekday[] = [
+export const WEEKDAY_ORDER: Weekday[] = [
   "mon",
   "tue",
   "wed",

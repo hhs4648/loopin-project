@@ -45,6 +45,7 @@ const TYPE_LABEL: Record<string, string> = {
   translate: "번역 배열",
   write: "영작",
   ox: "OX문제",
+  fix: "OX 교정",
 };
 
 const CATEGORY_ORDER: WorksheetCategory[] = ["단어", "문장", "문법"];
@@ -249,38 +250,53 @@ function buildSentenceItem(
   return null;
 }
 
+function normalizeGrammarTypeKey(typeKey: string): string {
+  if (typeKey === "ox-fix") return "fix";
+  return typeKey;
+}
+
 function buildGrammarItem(
   grammar: ProblemGrammarSnapshot,
   typeKey: string,
 ): WorksheetItem | null {
   const category: WorksheetCategory = "문법";
-  const label = typeLabelFor(typeKey, category);
+  const normalizedType = normalizeGrammarTypeKey(typeKey);
+  const label = typeLabelFor(normalizedType, category);
   const english = stripBrackets(grammar.english);
   const korean = stripBrackets(grammar.korean);
   const ox = (grammar.ox ?? "").trim().toUpperCase();
   const choices = parseGrammarChoices(grammar.choices);
 
-  if (typeKey === "ox") {
-    const lines = [
-      `[${label}] ${english}`,
-      "O / X : ______",
-    ];
-    if (ox === "X" && grammar.wrongPart?.trim()) {
+  // `ox` = OX 판정, `fix` = X일 때 이어지는 교정 스텝 오답
+  if (normalizedType === "ox" || normalizedType === "fix") {
+    const isFix = normalizedType === "fix";
+    const lines = isFix
+      ? [
+          `[${label}] ${english}`,
+          "틀린 곳에 ○ 치고 바르게 고치세요: ________________________",
+        ]
+      : [`[${label}] ${english}`, "O / X : ______"];
+    if (!isFix && ox === "X" && grammar.wrongPart?.trim()) {
       lines.push("틀린 곳에 ○ 치고 바르게 고치세요: ________________________");
     }
-    const answerParts = [ox || "—"];
-    if (ox === "X" && choices[0]) answerParts.push(`고침: ${choices[0]}`);
-    else if (korean) answerParts.push(korean);
+    const answerParts = isFix
+      ? [choices[0] ? `고침: ${choices[0]}` : korean || "—"]
+      : [ox || "—"];
+    if (!isFix && ox === "X" && choices[0]) {
+      answerParts.push(`고침: ${choices[0]}`);
+    } else if (!isFix && korean) {
+      answerParts.push(korean);
+    }
     return {
       category,
-      typeKey,
+      typeKey: normalizedType,
       typeLabel: label,
       promptLines: lines,
       answerKey: answerParts.join(" · "),
     };
   }
 
-  if (typeKey === "choice") {
+  if (normalizedType === "choice") {
     const target = grammar.wrongPart?.trim();
     const blanked =
       target && target !== "-" && english.includes(target)
@@ -292,7 +308,7 @@ function buildGrammarItem(
         : ["  (보기를 보고 고르세요)"];
     return {
       category,
-      typeKey,
+      typeKey: normalizedType,
       typeLabel: label,
       promptLines: [`[${label}] ${blanked}`, ...optionLines],
       answerKey: choices[0] ?? korean ?? "—",

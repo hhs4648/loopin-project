@@ -60,7 +60,7 @@ function clampToRange(
 ): Parsed {
   let m = Math.round(minute / 5) * 5;
   if (m >= 60) m = 55;
-  let total = toMinutes(period, hour12, m);
+  const total = toMinutes(period, hour12, m);
   if (total < MIN_MINUTES) {
     return { period: "am", hour12: 6, minute: 0 };
   }

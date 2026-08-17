@@ -1,9 +1,20 @@
 import fs from "fs";
 import path from "path";
 
-/** 프로젝트 루트의 assets/ 폴더 (loopin-web 기준 ../assets) */
+/**
+ * SVG 에셋 폴더.
+ * - 로컬/모노레포: loopin-web 기준 `../assets`
+ * - Vercel CLI를 loopin-web만 올릴 때: `loopin-web/assets` 복사본
+ */
 export function getAssetsDir(): string {
-  return path.join(process.cwd(), "..", "assets");
+  const candidates = [
+    path.join(process.cwd(), "assets"),
+    path.join(process.cwd(), "..", "assets"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir;
+  }
+  return candidates[1]!;
 }
 
 export function readAssetFile(filename: string): string {

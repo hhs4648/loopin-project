@@ -58,7 +58,16 @@ export function ClassSettingsPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  useEffect(() => {
+  /*
+    다른 반으로 바뀌면 편집 중이던 값을 그 반 값으로 되돌린다.
+
+    effect가 아니라 **렌더 중 조정**이다(React가 권장하는 방식). effect에서 setState하면
+    이전 반의 값으로 한 번 그린 뒤 다시 그리게 되어, 반을 바꾼 순간 옛 이름이 한 프레임
+    비친다. 렌더 중에 조정하면 그 중간 화면이 아예 없다.
+  */
+  const [syncedClass, setSyncedClass] = useState(teacherClass);
+  if (syncedClass !== teacherClass) {
+    setSyncedClass(teacherClass);
     setName(teacherClass.name);
     setGrade(teacherClass.grade ?? "");
     setThemeId(teacherClass.colorThemeId);
@@ -71,7 +80,7 @@ export function ClassSettingsPanel({
     setPeriodOpen(false);
     setEditingId(null);
     setDeleteOpen(false);
-  }, [teacherClass]);
+  }
 
   const theme = getColorTheme(themeId);
   const editing = editingId
