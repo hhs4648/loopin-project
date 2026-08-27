@@ -422,10 +422,16 @@ console.log(
   잊기 쉬운 일이라 여기 붙여 둔다. 학생 리포가 없거나 네트워크가 없으면 **경고만 하고
   넘어간다** — 문제은행 자체는 이미 잘 쓰였으므로 임포트를 실패로 만들 이유가 없다.
 */
-const ttsScript = path.join(
-  __dirname,
-  "../../loopin-webapp/scripts/build-tts-audio.mjs"
-);
+// 학생 리포 위치는 사람마다 다르다 — 형제 폴더일 수도, `projects/` 아래일 수도.
+// 하나만 박아 두면 조용히 건너뛰어서 음성이 낡은 채로 남는다.
+const TTS_SCRIPT_REL = "loopin-webapp/scripts/build-tts-audio.mjs";
+const ttsScript =
+  process.env.HAKSUP_STUDENT_TTS_SCRIPT ??
+  [
+    path.join(__dirname, "../..", TTS_SCRIPT_REL),
+    path.join(__dirname, "../../projects", TTS_SCRIPT_REL),
+  ].find((p) => fs.existsSync(p)) ??
+  path.join(__dirname, "../..", TTS_SCRIPT_REL);
 if (fs.existsSync(ttsScript)) {
   console.log("");
   console.log("학생 앱 음성 갱신 중…");
