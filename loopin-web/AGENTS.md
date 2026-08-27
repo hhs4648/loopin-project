@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ---
 
-# 루핀 교사 웹 — 에이전트 공용 규칙
+# 학습 교사 웹 — 에이전트 공용 규칙
 
 > **이 파일이 단일 소스입니다.** Cursor와 Claude Code가 **둘 다** 이 파일을 읽습니다.
 > - Cursor: `AGENTS.md`를 네이티브로 읽음 + `../.cursor/rules/shared-agents.mdc`가 한 번 더 지시
@@ -16,12 +16,29 @@ This version has breaking changes — APIs, conventions, and file structure may 
 > 두 도구가 서로 다른 규칙을 보게 되는 원인이 됩니다.
 > 위쪽 `BEGIN/END:nextjs-agent-rules` 블록은 자동 생성 구간이니 손대지 마세요.
 
+## 제품 이름
+
+**제품 이름은 `학습`(영문 `Haksup`)이다.** 예전 이름 **루핀 / Loopin**은 쓰지 않는다.
+
+| 구분 | 쓰는 이름 |
+|------|-----------|
+| 화면 카피, 브라우저 탭, 로그인, 안내 문구 | **학습** |
+| 코드 식별자 · localStorage 키 · 자산 파일명 | `haksup-*` — **2026-08-21 일괄 변경 완료** |
+| 폴더·리포 이름 | `loopin-project` · `loopin-web` **그대로** (사용자 결정 — 리네임하지 말 것) |
+
+> 이 표는 2026-08-21에 바뀌었다. 그 전까지는 「코드 식별자는 `loopin`으로 둔다」였는데,
+> 사용자가 흔적을 전부 지우기로 정하면서 키·식별자까지 옮겼다. 구 키는 버려지지 않고
+> `src/lib/legacy-brand-storage.ts`가 새 키로 옮긴다 — `HANDOFF.md` 참고.
+
+`loopin`이 남아 있어도 되는 곳은 **둘뿐**이다: 폴더 경로 표기와, 옛 저장소 키를 찾는
+`legacy-brand-storage.ts`. 그 밖에 새로 만드는 것에는 쓰지 않는다.
+
 ## 먼저 읽을 것
 
 **`HANDOFF.md`** (이 리포 루트) — 출시 준비(2026-08-12)를 하며 밟았던 함정을 모아
 뒀습니다. 규칙이 아니라 **배경**입니다. 아래를 건드리기 전에는 반드시 보세요.
 
-- **마이그레이션 001~012를 전부 올려야 합니다.** 학생 앱이 `012`의 DB 트리거에
+- **마이그레이션 001~013을 전부 올려야 합니다.** 학생 앱이 `012`의 DB 트리거에
   의존합니다(점수·진행률을 서버가 계산). 빠지면 조용히 고장 납니다.
 - **과제 예약 공개**(`open_at`) — 수업 종료 시각 계산, KST 고정, 오답 재출제는 예외
 - **재출제 상태 칩** — 점수에서 문항 수를 역산하지 마세요
@@ -64,7 +81,7 @@ Claude Code는 이 파일을 스킬로 자동 인식하고, Cursor는 위 경로
 
 ## Product context
 
-This is the **teacher-facing** half of Loopin, a Korean middle-school English 내신(exam) prep product. The **student-facing** app (`loopin-webapp`) is a separate repo/git project with its own Supabase project sharing the same schema conventions. The actually-implemented surface here is teacher calendar management, problem/assignment authoring, and class management — not the student quiz flow.
+This is the **teacher-facing** half of **학습** (product name; repo/code still say Haksup/`haksup-*`), a Korean middle-school English 내신(exam) prep product. The **student-facing** app (`loopin-webapp`) is a separate repo/git project with its own Supabase project sharing the same schema conventions. The actually-implemented surface here is teacher calendar management, problem/assignment authoring, and class management — not the student quiz flow.
 
 The living product spec lives one directory **above** this repo, in `loopin-project/` (parent of `loopin-web/`): `requirements.md`, `architecture.md`, `design.md`, `pages.md`, `tech-stack.md`, `uiux.md`, `figma.md`. Consult these before implementing a feature — particularly:
 - `uiux.md` §2.3 — the button/link → destination map.
@@ -78,9 +95,9 @@ The living product spec lives one directory **above** this repo, in `loopin-proj
 
 **Figma-asset-driven screens.** Full-screen SVGs live in `../assets/` (outside this repo, read via `src/lib/assets.ts`'s `readAssetFile`, relative to `loopin-web`'s cwd). `components/figma/FigmaScreen.tsx` renders that SVG verbatim via `dangerouslySetInnerHTML` (no modification) and overlays invisible `<Link>` hit-areas from `hotspots` props, positioned in absolute pixel coordinates against the SVG's export artboard (1557×973/974). Hotspot coordinates for each screen are centralized in `src/config/figma-hotspots.ts`. Do not redesign or re-render text/labels over the SVG — only add/adjust transparent hit-areas. The teacher sidebar hotspots (`getTeacherSidebarHotspots`) are shared across every teacher screen and must stay pixel-identical everywhere; don't fix a sidebar issue on only one screen.
 
-**Local-first data, Supabase-second.** Feature state (classes, calendar/schedule, problem sets, assignments, students, teacher profile, settings) is modeled in plain `src/lib/*.ts` modules (`class-assignments.ts`, `calendar-*.ts`, `problem-sets.ts`, `teacher-classes.ts`, `teacher-profile.ts`, `school-brand.ts`, `korean-holidays.ts`, etc.) and persisted to localStorage under `loopin-*` keys — this is the source of truth for the UI. `src/lib/sync/*` (`supabase-client.ts`, `teacher-session.ts`, `teacher-sync.ts`, `content-snapshot.ts`, `types.ts`) mirrors writes to Supabase in a **best-effort, non-blocking** way: every sync function checks `isSyncEnabled()` first and swallows failures with `console.warn` rather than throwing — never make sync a hard dependency for a UI action to succeed. Migration to Supabase as the real source of truth is not finished; check whether a given feature actually reads from Supabase or only writes to it before assuming it's live.
+**Local-first data, Supabase-second.** Feature state (classes, calendar/schedule, problem sets, assignments, students, teacher profile, settings) is modeled in plain `src/lib/*.ts` modules (`class-assignments.ts`, `calendar-*.ts`, `problem-sets.ts`, `teacher-classes.ts`, `teacher-profile.ts`, `school-brand.ts`, `korean-holidays.ts`, etc.) and persisted to localStorage under `haksup-*` keys — this is the source of truth for the UI. `src/lib/sync/*` (`supabase-client.ts`, `teacher-session.ts`, `teacher-sync.ts`, `content-snapshot.ts`, `types.ts`) mirrors writes to Supabase in a **best-effort, non-blocking** way: every sync function checks `isSyncEnabled()` first and swallows failures with `console.warn` rather than throwing — never make sync a hard dependency for a UI action to succeed. Migration to Supabase as the real source of truth is not finished; check whether a given feature actually reads from Supabase or only writes to it before assuming it's live.
 
-**Supabase schema** is defined in `supabase/migrations/001_loopin_sync.sql` (Postgres + Anonymous Auth + Realtime, `pgcrypto` for UUIDs): `profiles` (role-checked student/teacher), `classes` (string ids `class-*`, 6-char `[A-Z0-9]` invite codes, a `payload jsonb` escape hatch for the full local object shape), `class_invites`, `enrollments`, and attempt/progress tables. Env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (see `.env.example`; sync is disabled entirely if these are unset).
+**Supabase schema** is defined in `supabase/migrations/001_haksup_sync.sql` (Postgres + Anonymous Auth + Realtime, `pgcrypto` for UUIDs): `profiles` (role-checked student/teacher), `classes` (string ids `class-*`, 6-char `[A-Z0-9]` invite codes, a `payload jsonb` escape hatch for the full local object shape), `class_invites`, `enrollments`, and attempt/progress tables. Env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (see `.env.example`; sync is disabled entirely if these are unset).
 
 **Routing** (`src/app/`, App Router): `/teacher` (calendar home), `/teacher/classes/[classId]` (tabs: home/assignments/students/settings — one dynamic route, not separate pages per tab), `/teacher/problems`, `/teacher/problems/saved`, `/teacher/school-settings`, `/teacher/settings`. `src/components/teacher/` holds one component per panel/modal (large, flat directory — grep by feature name, e.g. `Calendar*`, `Class*`, `Problem*`, `Sidebar*`). Path alias `@/*` → `src/*`.
 

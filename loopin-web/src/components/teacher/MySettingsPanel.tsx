@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 
+import { signOutTeacher } from "@/lib/sync/teacher-auth";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 
 /** 사이드바 오른쪽 본문 영역 */
@@ -258,7 +259,12 @@ export function MySettingsPanel({
 
           <button
             type="button"
-            onClick={() => router.push("/login")}
+            onClick={() => {
+              void (async () => {
+                await signOutTeacher();
+                router.replace("/login");
+              })();
+            }}
             className="mt-6 flex h-11 items-center justify-center rounded-[12px] border border-[#E1E2E4] bg-white px-5 text-[14px] font-bold text-[#3D4148] transition-colors hover:border-[#F16163] hover:bg-[#FEE7E7] hover:text-[#C52B2B]"
           >
             로그아웃

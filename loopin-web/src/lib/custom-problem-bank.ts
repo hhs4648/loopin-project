@@ -9,8 +9,8 @@ import type {
   ProblemWord,
 } from "@/lib/problem-bank";
 
-const STORAGE_KEY = "loopin-custom-problem-bank";
-const CHANGE_EVENT = "loopin-custom-problem-bank-changed";
+const STORAGE_KEY = "haksup-custom-problem-bank";
+const CHANGE_EVENT = "haksup-custom-problem-bank-changed";
 
 export type CustomProblemBank = {
   words: ProblemWord[];

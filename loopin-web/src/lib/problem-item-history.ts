@@ -11,7 +11,7 @@ import {
  * 「이 문항, 이 반에 이미 냈나?」를 **파생으로** 답한다.
  *
  * 별도 저장소를 두지 않는 이유:
- * - `loopin-class-assignments`(반별 부여)와 `SavedProblemSet.items`(문항 id 목록)만 조인하면
+ * - `haksup-class-assignments`(반별 부여)와 `SavedProblemSet.items`(문항 id 목록)만 조인하면
  *   이미 답이 나온다. 새 키를 만들면 학생앱 스냅샷과 어긋날 자리가 하나 더 생긴다.
  * - 과거에 부여한 과제도 마이그레이션 없이 그대로 잡힌다.
  *

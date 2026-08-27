@@ -27,6 +27,7 @@ import {
   splitKoreanChunksPhrase,
 } from "@/lib/ai/phrase-chunks";
 import { validateProblemItemInput } from "@/lib/validate-problem-item";
+import { ensureWordCloze } from "@/lib/word-cloze";
 
 export type AddProblemKind = "word" | "sentence" | "grammar";
 
@@ -66,7 +67,7 @@ const KIND_META: Record<
     editTitle: "단어 수정",
     submit: "단어 추가",
     editSubmit: "저장",
-    hint: "선택한 단원에 새 단어를 넣어요.",
+    hint: "예문에 같은 단어나 활용형(held 등)이 있으면 빈칸이 자동으로 생겨요.",
     editHint: "교과서·직접 추가 단어를 수정해요. 원본 JSON은 바뀌지 않아요.",
   },
   sentence: {
@@ -252,7 +253,7 @@ export function AddProblemItemModal({
         ...scope,
         english: en,
         korean: ko,
-        exampleEn,
+        exampleEn: ensureWordCloze(exampleEn, en) ?? exampleEn,
         exampleKo,
       };
       const saved =
@@ -398,7 +399,7 @@ export function AddProblemItemModal({
                     value={exampleEn}
                     onChange={(event) => setExampleEn(event.target.value)}
                     className={textareaClass}
-                    placeholder="빈칸은 [단어] 형태로 적어 주세요"
+                    placeholder="예문에 같은 단어나 활용형이 있으면 빈칸이 자동으로 생겨요"
                   />
                 </div>
                 <div>

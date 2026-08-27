@@ -20,7 +20,7 @@ import type {
   StudentProgressRow,
 } from "@/lib/sync/types";
 
-const MIGRATED_KEY = "loopin-sync-migrated-v1";
+const MIGRATED_KEY = "haksup-sync-migrated-v1";
 
 /**
  * question_id = `${baseId}:${typeKey}`
@@ -97,6 +97,17 @@ export async function upsertTeacherClassRemote(
     },
     { onConflict: "code" },
   );
+}
+
+/** 로컬 반·초대코드를 서버에 올린다. 환경변수를 나중에 넣어도 학생 앱이 코드를 찾게 한다. */
+export async function syncAllTeacherClassesRemote(
+  classes: TeacherClass[],
+): Promise<void> {
+  if (!isSyncEnabled()) return;
+  await ensureTeacherSession();
+  for (const item of classes) {
+    await upsertTeacherClassRemote(item);
+  }
 }
 
 export async function deleteTeacherClassRemote(classId: string): Promise<void> {
@@ -611,6 +622,49 @@ function mapAttempt(row: Record<string, unknown>): AttemptProgress {
   };
 }
 
+/**
+ * 문항 정답률·오답 목록에 쓸 회차.
+ *
+ * 시작한 시각이 가장 늦은 것만 쓰면, 완료 뒤에 열린 빈 in_progress(0%)가
+ * 답안을 가려 퍼센트가 영원히 안 움직인다. 학생 앱과 같이:
+ * 최신 회차에 답안이 있으면 그걸 쓰고, 없으면 완료 회차(또는 답안 있는 이전 회차)를 쓴다.
+ */
+function pickResultAttempt(
+  attempts: AttemptProgress[],
+): AttemptProgress | null {
+  if (attempts.length === 0) return null;
+  const sorted = [...attempts].sort((a, b) =>
+    a.startedAt.localeCompare(b.startedAt),
+  );
+  const latest = sorted[sorted.length - 1]!;
+  if (latest.status === "completed" || latest.answeredCount > 0) return latest;
+  const latestCompleted = [...sorted]
+    .reverse()
+    .find((a) => a.status === "completed");
+  if (latestCompleted) return latestCompleted;
+  const withAnswers = [...sorted]
+    .reverse()
+    .find((a) => a.answeredCount > 0);
+  return withAnswers ?? latest;
+}
+
+function resultAttemptByStudent(
+  attempts: AttemptProgress[],
+): Map<string, AttemptProgress> {
+  const byStudent = new Map<string, AttemptProgress[]>();
+  for (const attempt of attempts) {
+    const list = byStudent.get(attempt.studentId) ?? [];
+    list.push(attempt);
+    byStudent.set(attempt.studentId, list);
+  }
+  const out = new Map<string, AttemptProgress>();
+  for (const [studentId, list] of byStudent) {
+    const picked = pickResultAttempt(list);
+    if (picked) out.set(studentId, picked);
+  }
+  return out;
+}
+
 export async function fetchAttemptsForAssignment(
   assignmentId: string,
 ): Promise<AttemptProgress[]> {
@@ -652,10 +706,9 @@ export async function fetchWrongAnswersForStudent(params: {
   await ensureTeacherSession();
 
   const attempts = await fetchAttemptsForAssignment(params.assignmentId);
-  const studentAttempts = attempts
-    .filter((a) => a.studentId === params.studentId)
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  const latest = studentAttempts[0];
+  const latest = pickResultAttempt(
+    attempts.filter((a) => a.studentId === params.studentId),
+  );
   if (!latest) return [];
 
   const { data, error } = await supabase
@@ -786,16 +839,40 @@ export function buildStudentProgressRows(
       .reverse()
       .find((a) => a.status === "completed");
 
+    // 완료 이력이 있으면 완료로 둔다. 학생 앱(`student-api.ts`)과 같다 —
+    // 헬스장·재도전으로 열린 in_progress(0%) attempt가 남아 있어도
+    // 「미제출」로 떨어지면 선생님이 다 푼 재출제를 못 본다.
     let status: StudentProgressRow["status"] = "idle";
-    if (latest?.status === "completed") status = "completed";
-    else if (latest) status = "in_progress";
+    if (latestCompleted || latest?.status === "completed") {
+      status = "completed";
+    } else if (latest) {
+      status = "in_progress";
+    }
+
+    const resultAttempt =
+      latest?.status === "in_progress" && latest.answeredCount > 0
+        ? latest
+        : (latestCompleted ?? latest);
 
     const latestAccuracy =
-      latest && latest.answeredCount > 0
-        ? Math.round((latest.correctCount / latest.answeredCount) * 100)
-        : latest?.score != null
-          ? Math.round(Number(latest.score))
+      resultAttempt && resultAttempt.answeredCount > 0
+        ? Math.round(
+            (resultAttempt.correctCount / resultAttempt.answeredCount) * 100,
+          )
+        : resultAttempt?.score != null
+          ? Math.round(Number(resultAttempt.score))
           : null;
+
+    const latestProgress = latest?.progressPercent ?? 0;
+    const completedProgress = latestCompleted?.progressPercent ?? 0;
+    const progressPercent =
+      latest?.status === "in_progress" && latestProgress > 0
+        ? latestProgress
+        : latestCompleted
+          ? completedProgress > 0
+            ? completedProgress
+            : 100
+          : latestProgress;
 
     // 평균 정답률: 과제별 **마지막 시도** 점수만 산술평균 (중간 재도전 미반영)
     const lastAttemptByAssignment = new Map<string, (typeof mine)[number]>();
@@ -818,7 +895,7 @@ export function buildStudentProgressRows(
       studentId: student.id,
       studentName: student.name,
       status,
-      progressPercent: latest?.progressPercent ?? 0,
+      progressPercent,
       latestAccuracy,
       averageAccuracy,
       firstScore: firstCompleted?.score ?? null,
@@ -873,14 +950,8 @@ export async function fetchQuestionStats(
     ];
   }
 
-  // 학생마다 과제 **마지막 시도**만 반영 (중간 재도전 answers 제외)
-  const latestAttemptByStudent = new Map<string, AttemptProgress>();
-  for (const attempt of attempts) {
-    const prev = latestAttemptByStudent.get(attempt.studentId);
-    if (!prev || attempt.startedAt >= prev.startedAt) {
-      latestAttemptByStudent.set(attempt.studentId, attempt);
-    }
-  }
+  // 학생마다 **채점할 회차**만 반영. 빈 재도전 attempt가 답안을 가리지 않게 한다.
+  const latestAttemptByStudent = resultAttemptByStudent(attempts);
   const latestAttemptIds = [...latestAttemptByStudent.values()].map((a) => a.id);
 
   const { data: answers } = await supabase
@@ -960,7 +1031,7 @@ function resolveTypeLabel(
 
 /**
  * 특정 문항(단어/문장/문법 원본 id)의 유형별 정답률 + 학생별 정오.
- * 학생마다 과제의 **마지막 시도** 답안만 사용 (중간 재도전 제외).
+ * 학생마다 과제의 **채점 회차** 답안만 사용 (빈 재도전 제외).
  */
 export async function fetchQuestionDetailStats(params: {
   assignmentId: string;
@@ -980,13 +1051,7 @@ export async function fetchQuestionDetailStats(params: {
   const attempts = await fetchAttemptsForAssignment(params.assignmentId);
   if (attempts.length === 0) return empty;
 
-  const latestAttemptByStudent = new Map<string, AttemptProgress>();
-  for (const attempt of attempts) {
-    const prev = latestAttemptByStudent.get(attempt.studentId);
-    if (!prev || attempt.startedAt >= prev.startedAt) {
-      latestAttemptByStudent.set(attempt.studentId, attempt);
-    }
-  }
+  const latestAttemptByStudent = resultAttemptByStudent(attempts);
   const latestAttemptIds = [...latestAttemptByStudent.values()].map((a) => a.id);
   if (latestAttemptIds.length === 0) return empty;
 

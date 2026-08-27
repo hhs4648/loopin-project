@@ -8,6 +8,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { ModalCloseButton } from "@/components/teacher/ModalCloseButton";
 
 type ClassPeriodModalProps = {
   open: boolean;
@@ -22,15 +23,15 @@ type ClassPeriodModalProps = {
   }) => void;
   /** `frame`: 교사 Figma 프레임 안에서 띄움 (새 반 만들기 직후) */
   overlay?: "fixed" | "frame";
-  /** false면 취소·딤 클릭·Esc로 닫을 수 없음 — 수업 기간 입력을 필수로 강제 */
-  dismissible?: boolean;
+  /** 헤더 아래 안내 — 새 반 만들기 직후처럼 확인 전까지 반영하지 않을 때 */
+  hint?: string;
 };
 
 const WEEK_LABELS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
 /**
  * 반 설정 — 수업 기간 팝업.
- * 수업 이름 + 개강일 ≫ 종강일 + 커스텀 캘린더.
+ * 기간명 + 개강일 ≫ 종강일 + 커스텀 캘린더.
  */
 export function ClassPeriodModal({
   open,
@@ -40,7 +41,7 @@ export function ClassPeriodModal({
   endDate: initialEnd,
   onConfirm,
   overlay = "fixed",
-  dismissible = true,
+  hint,
 }: ClassPeriodModalProps) {
   const titleId = useId();
   const nameRef = useRef<HTMLInputElement>(null);
@@ -66,12 +67,12 @@ export function ClassPeriodModal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (picker) setPicker(null);
-        else if (dismissible) onClose();
+        else onClose();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, picker, dismissible]);
+  }, [open, onClose, picker]);
 
   if (!open) return null;
 
@@ -79,7 +80,7 @@ export function ClassPeriodModal({
     e.preventDefault();
     const trimmed = periodName.trim();
     if (!trimmed) {
-      setError("수업 이름을 입력해 주세요");
+      setError("기간명을 입력해 주세요");
       return;
     }
     if (!startDate) {
@@ -119,16 +120,15 @@ export function ClassPeriodModal({
           ? "absolute inset-0 z-[60] bg-black/35 p-6"
           : "fixed inset-0 z-[80] p-4"
       }`}
-      onClick={isFrameOverlay && dismissible ? onClose : undefined}
+      onClick={isFrameOverlay ? onClose : undefined}
       role="presentation"
     >
       {!isFrameOverlay ? (
         <button
           type="button"
           aria-label="닫기"
-          disabled={!dismissible}
-          className="absolute inset-0 bg-black/35 disabled:cursor-default"
-          onClick={dismissible ? onClose : undefined}
+          className="absolute inset-0 bg-black/35"
+          onClick={onClose}
         />
       ) : null}
       <div
@@ -140,24 +140,27 @@ export function ClassPeriodModal({
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-8 pt-7 pb-2">
-          <h2
-            id={titleId}
-            className="text-[18px] font-bold tracking-tight text-[#15171A]"
-          >
-            수업 기간 설정
-          </h2>
-          {!dismissible ? (
-            <p className="mt-1 text-[13px] font-medium text-[#8B8F96]">
-              캘린더에 반영하려면 수업 기간을 설정해야 해요.
-            </p>
-          ) : null}
+        <div className="flex items-start justify-between gap-3 px-8 pt-7 pb-2">
+          <div className="min-w-0">
+            <h2
+              id={titleId}
+              className="text-[18px] font-bold tracking-tight text-[#15171A]"
+            >
+              수업 기간 설정
+            </h2>
+            {hint ? (
+              <p className="mt-1 text-[13px] font-medium text-[#8B8F96]">
+                {hint}
+              </p>
+            ) : null}
+          </div>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         <form onSubmit={submit} className="flex flex-col gap-5 px-8 pb-7 pt-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-[13px] font-semibold text-[#3D4148]">
-              수업 이름 <span className="text-[#EF4444]">*</span>
+              기간명 <span className="text-[#EF4444]">*</span>
             </span>
             <input
               ref={nameRef}
@@ -213,15 +216,13 @@ export function ClassPeriodModal({
           ) : null}
 
           <div className="flex justify-end gap-2 pt-2">
-            {dismissible ? (
-              <button
-                type="button"
-                onClick={onClose}
-                className="h-10 min-w-[72px] rounded-[10px] border border-[#E1E2E4] bg-white px-4 text-[14px] font-bold text-[#3D4148] hover:bg-[#F3F4F5]"
-              >
-                취소
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-10 min-w-[72px] rounded-[10px] border border-[#E1E2E4] bg-white px-4 text-[14px] font-bold text-[#3D4148] hover:bg-[#F3F4F5]"
+            >
+              취소
+            </button>
             <button
               type="submit"
               className="h-10 min-w-[72px] rounded-[10px] bg-[#1AA7F2] px-5 text-[14px] font-bold text-white hover:bg-[#1596d9]"

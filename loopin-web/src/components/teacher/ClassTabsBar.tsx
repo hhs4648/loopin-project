@@ -70,6 +70,7 @@ export function ClassTabsBar({ classId, activeTab }: ClassTabsBarProps) {
               key={tab.id}
               href={classTabHref(classId, tab.id)}
               aria-current={active ? "page" : undefined}
+              data-guide={tab.id === "assignments" ? "assignments-tab" : undefined}
               className="relative flex flex-col items-center outline-none focus:outline-none focus-visible:outline-none"
               style={{
                 minWidth: 48,

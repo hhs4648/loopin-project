@@ -10,9 +10,9 @@ import { VocabExcelSheet } from "@/components/teacher/VocabExcelSheet";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 import {
   buildVocabSetFromCatalog,
-  listLoopinVocabSets,
-  type LoopinVocabSetInfo,
-} from "@/lib/loopin-vocab-catalog";
+  listHaksupVocabSets,
+  type HaksupVocabSetInfo,
+} from "@/lib/haksup-vocab-catalog";
 import {
   applyVocabPartsByDay,
   compactVocabEntries,
@@ -69,9 +69,9 @@ export function VocabBuilderPanel() {
   useEffect(() => {
     if (!hydrated) return;
     const onChange = () => setSets(loadVocabSets());
-    window.addEventListener("loopin-vocab-sets-changed", onChange);
+    window.addEventListener("haksup-vocab-sets-changed", onChange);
     return () =>
-      window.removeEventListener("loopin-vocab-sets-changed", onChange);
+      window.removeEventListener("haksup-vocab-sets-changed", onChange);
   }, [hydrated]);
 
   const entries = draft?.entries ?? [];
@@ -93,8 +93,8 @@ export function VocabBuilderPanel() {
     setView("editor");
   };
 
-  /** 루핀 제공 단어장 담기 — 복사본을 바로 편집기로 연다(저장은 교사가 확인 후) */
-  const pickLoopinCatalogSet = (info: LoopinVocabSetInfo) => {
+  /** 학습 제공 단어장 담기 — 복사본을 바로 편집기로 연다(저장은 교사가 확인 후) */
+  const pickHaksupCatalogSet = (info: HaksupVocabSetInfo) => {
     const copied = buildVocabSetFromCatalog(info);
     setCatalogOpen(false);
     setDraft(copied);
@@ -265,7 +265,7 @@ export function VocabBuilderPanel() {
             sets={sets}
             archiveChecked={archiveChecked}
             onNew={openNewEditor}
-            onOpenLoopinCatalog={() => setCatalogOpen(true)}
+            onOpenHaksupCatalog={() => setCatalogOpen(true)}
             onToggleArchive={toggleArchive}
             onToggleArchiveAll={toggleArchiveAll}
             onDeleteChecked={deleteChecked}
@@ -294,10 +294,10 @@ export function VocabBuilderPanel() {
         ) : null}
       </div>
 
-      <LoopinCatalogModal
+      <HaksupCatalogModal
         open={catalogOpen}
         onClose={() => setCatalogOpen(false)}
-        onPick={pickLoopinCatalogSet}
+        onPick={pickHaksupCatalogSet}
       />
 
       {practiceMode && draft ? (
@@ -315,7 +315,7 @@ function HubView({
   sets,
   archiveChecked,
   onNew,
-  onOpenLoopinCatalog,
+  onOpenHaksupCatalog,
   onToggleArchive,
   onToggleArchiveAll,
   onDeleteChecked,
@@ -324,7 +324,7 @@ function HubView({
   sets: VocabSet[];
   archiveChecked: Set<string>;
   onNew: () => void;
-  onOpenLoopinCatalog: () => void;
+  onOpenHaksupCatalog: () => void;
   onToggleArchive: (id: string) => void;
   onToggleArchiveAll: () => void;
   onDeleteChecked: () => void;
@@ -346,10 +346,10 @@ function HubView({
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={onOpenLoopinCatalog}
+            onClick={onOpenHaksupCatalog}
             className="h-10 rounded-[10px] border border-[#BAE6FD] bg-[#F0F9FF] px-4 text-[13px] font-bold text-[#1274A9] transition-colors hover:border-[#1AA7F2] hover:bg-[#E0F2FE]"
           >
-            + 루핀 단어장
+            + 학습 단어장
           </button>
           <button
             type="button"
@@ -382,10 +382,10 @@ function HubView({
               </button>
               <button
                 type="button"
-                onClick={onOpenLoopinCatalog}
+                onClick={onOpenHaksupCatalog}
                 className="h-10 rounded-[10px] border border-[#BAE6FD] bg-[#F0F9FF] px-4 text-[13px] font-bold text-[#1274A9] transition-colors hover:border-[#1AA7F2] hover:bg-[#E0F2FE]"
               >
-                루핀 제공 단어장
+                학습 제공 단어장
               </button>
             </div>
           </div>
@@ -741,19 +741,19 @@ function EditorView({
 }
 
 /**
- * 루핀 제공 단어장 고르기.
+ * 학습 제공 단어장 고르기.
  * 담으면 **새 id로 복사**되므로 이후 편집은 교사 소유 단어장에서 일어난다.
  */
-function LoopinCatalogModal({
+function HaksupCatalogModal({
   open,
   onClose,
   onPick,
 }: {
   open: boolean;
   onClose: () => void;
-  onPick: (info: LoopinVocabSetInfo) => void;
+  onPick: (info: HaksupVocabSetInfo) => void;
 }) {
-  const catalog = useMemo(() => (open ? listLoopinVocabSets() : []), [open]);
+  const catalog = useMemo(() => (open ? listHaksupVocabSets() : []), [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -775,14 +775,14 @@ function LoopinCatalogModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="루핀 제공 단어장"
+        aria-label="학습 제공 단어장"
         onClick={(event) => event.stopPropagation()}
         className="flex h-[min(620px,88vh)] w-[560px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#F0F1F3] px-6 py-5">
           <div className="min-w-0">
             <h2 className="text-[20px] font-bold tracking-[-0.02em] text-[#15171A]">
-              루핀 제공 단어장
+              학습 제공 단어장
             </h2>
             <p className="mt-1 text-[13px] font-medium text-[#8B8F96]">
               담으면 내 보관함에 복사돼요. 담은 뒤 자유롭게 고칠 수 있어요.

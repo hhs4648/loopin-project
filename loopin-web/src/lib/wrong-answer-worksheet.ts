@@ -1,4 +1,5 @@
 import { stripBrackets } from "@/lib/problem-bank";
+import { extractCloze } from "@/lib/word-cloze";
 import { buildContentSnapshot } from "@/lib/sync/content-snapshot";
 import type { SavedProblemSet } from "@/lib/problem-sets";
 import type {
@@ -63,6 +64,12 @@ function typeLabelFor(typeKey: string, category: WorksheetCategory): string {
   return TYPE_LABEL[typeKey] ?? typeKey;
 }
 
+/** 지필 시험지에서는 짝맞추기·음성 짝맞추기를 같은 문항으로 본다. */
+function canonicalWorksheetTypeKey(typeKey: string): string {
+  if (typeKey === "listen") return "match";
+  return typeKey;
+}
+
 function splitChunks(text: string | undefined, fallback: string): string[] {
   const source = text?.includes("/") ? text : fallback;
   if (source.includes("/")) {
@@ -96,18 +103,6 @@ function scrambleStable(parts: string[], seed: string): string[] {
   return arr;
 }
 
-function extractCloze(example: string | undefined) {
-  if (!example) return null;
-  const match = example.match(/\[([^\]]+)\]/);
-  if (!match?.[1]) return null;
-  const [before, after = ""] = example.split(match[0]);
-  return {
-    englishBefore: before ?? "",
-    englishAfter: after,
-    answer: match[1].trim(),
-  };
-}
-
 function parseGrammarChoices(choices: string | undefined): string[] {
   return (choices ?? "")
     .split(/[|/]/)
@@ -135,35 +130,31 @@ function buildWordItem(
     if (typeKey === "choice" && unique.length >= 2) {
       const options = scrambleStable([korean, unique[0]!, unique[1]!], seed);
       promptLines = [
-        `[${label}] ${english}`,
+        english,
         ...options.map((opt, i) => `  ${i + 1}) ${opt}`),
       ];
-    } else if (typeKey === "listen") {
-      promptLines = [
-        `[${label}] ${english}`,
-        "뜻을 듣고 알맞은 한글을 쓰세요: ________________________",
-      ];
     } else {
-      promptLines = [`[${label}] ${english}`, "뜻: ________________________"];
+      promptLines = [english, "뜻: ________________________"];
     }
+    const canonicalType = canonicalWorksheetTypeKey(typeKey);
     return {
       category,
-      typeKey,
-      typeLabel: label,
+      typeKey: canonicalType,
+      typeLabel: typeLabelFor(canonicalType, category),
       promptLines,
       answerKey: korean,
     };
   }
 
   if (typeKey === "spell") {
-    const cloze = extractCloze(word.exampleEn);
+    const cloze = extractCloze(word.exampleEn, word.english);
     if (!cloze) {
       return {
         category,
         typeKey,
         typeLabel: label,
         promptLines: [
-          `[${label}] ${english} (${korean})`,
+          `${english} (${korean})`,
           "예문 빈칸을 채우세요: ________________________",
         ],
         answerKey: english,
@@ -174,7 +165,7 @@ function buildWordItem(
       typeKey,
       typeLabel: label,
       promptLines: [
-        `[${label}] ${stripBrackets(word.exampleKo || korean)}`,
+        stripBrackets(word.exampleKo || korean),
         `${cloze.englishBefore}________${cloze.englishAfter}`,
       ],
       answerKey: `${cloze.answer} (${korean})`,
@@ -202,7 +193,7 @@ function buildSentenceItem(
       typeKey,
       typeLabel: label,
       promptLines: [
-        `[${label}] ${korean}`,
+        korean,
         `조각: ${scrambled.join("  /  ")}`,
         "→ ______________________________________________",
       ],
@@ -218,7 +209,7 @@ function buildSentenceItem(
       typeKey,
       typeLabel: label,
       promptLines: [
-        `[${label}] ${english}`,
+        english,
         `조각: ${scrambled.join("  /  ")}`,
         "→ ______________________________________________",
       ],
@@ -239,7 +230,7 @@ function buildSentenceItem(
       typeKey,
       typeLabel: label,
       promptLines: [
-        `[${label}] ${korean}`,
+        korean,
         keywords.length > 0 ? `힌트: ${keywords.join(", ")}` : "",
         "→ ______________________________________________",
       ].filter(Boolean),
@@ -272,20 +263,20 @@ function buildGrammarItem(
     const isFix = normalizedType === "fix";
     const lines = isFix
       ? [
-          `[${label}] ${english}`,
+          english,
           "틀린 곳에 ○ 치고 바르게 고치세요: ________________________",
         ]
-      : [`[${label}] ${english}`, "O / X : ______"];
-    if (!isFix && ox === "X" && grammar.wrongPart?.trim()) {
-      lines.push("틀린 곳에 ○ 치고 바르게 고치세요: ________________________");
-    }
+      : [
+          english,
+          "O / X : ______",
+          "틀린 곳에 ○ 치고 바르게 고치세요: ________________________",
+        ];
     const answerParts = isFix
       ? [choices[0] ? `고침: ${choices[0]}` : korean || "—"]
       : [ox || "—"];
-    if (!isFix && ox === "X" && choices[0]) {
-      answerParts.push(`고침: ${choices[0]}`);
-    } else if (!isFix && korean) {
-      answerParts.push(korean);
+    if (!isFix && ox === "X") {
+      const fix = choices[0] || grammar.wrongPart?.trim();
+      if (fix && fix !== "-") answerParts.push(`고침: ${fix}`);
     }
     return {
       category,
@@ -310,7 +301,7 @@ function buildGrammarItem(
       category,
       typeKey: normalizedType,
       typeLabel: label,
-      promptLines: [`[${label}] ${blanked}`, ...optionLines],
+      promptLines: [blanked, ...optionLines],
       answerKey: choices[0] ?? korean ?? "—",
     };
   }
@@ -322,7 +313,7 @@ function buildGrammarItem(
 function isDuplicateItem(item: WorksheetItem, seenContent: Set<string>): boolean {
   const key = [
     item.category,
-    item.typeKey,
+    canonicalWorksheetTypeKey(item.typeKey),
     item.answerKey,
     ...item.promptLines,
   ].join("\0");
@@ -354,7 +345,7 @@ export function buildWrongAnswerWorksheet(params: {
   const seenContent = new Set<string>();
 
   for (const wrong of params.wrongAnswers) {
-    const idKey = `${wrong.baseId}:${wrong.typeKey}`;
+    const idKey = `${wrong.baseId}:${canonicalWorksheetTypeKey(wrong.typeKey)}`;
     if (seenIds.has(wrong.questionId) || seenIds.has(idKey)) continue;
     seenIds.add(wrong.questionId);
     seenIds.add(idKey);
@@ -493,7 +484,7 @@ export function worksheetAnswerBlocks(
   for (const item of sheet.items) {
     blocks.push({
       style: "body",
-      text: `${n}. [${item.category} · ${item.typeLabel}] ${item.answerKey}`,
+      text: `${n}. ${item.answerKey}`,
     });
     n += 1;
   }

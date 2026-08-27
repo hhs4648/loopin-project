@@ -21,6 +21,7 @@ import type { ClassStudent } from "@/lib/class-students";
 import type { OneOffLesson } from "@/lib/calendar-one-off-lessons";
 import {
   CLASS_COLOR_THEMES,
+  classGradeLabel,
   formatClassOpeningDate,
   formatClassWeeklySchedule,
   type TeacherClass,
@@ -41,6 +42,7 @@ import {
   buildUnitPartProgress,
   continueUnitHref,
 } from "@/lib/problem-set-parts";
+import { CopyToast, copyToClipboard } from "@/components/teacher/CopyToast";
 
 /** SVG 히어로 카드 (담당 반 색으로 다시 칠함) */
 const HERO = {
@@ -179,6 +181,7 @@ export function ClassHomeOverlay({
   const [draftTitle, setDraftTitle] = useState(savedTitle);
   const [focused, setFocused] = useState(false);
   const [justApplied, setJustApplied] = useState(false);
+  const [copyToastTick, setCopyToastTick] = useState(0);
 
   useEffect(() => {
     setDraftTitle(savedTitle);
@@ -189,6 +192,12 @@ export function ClassHomeOverlay({
     const timer = window.setTimeout(() => setJustApplied(false), 1400);
     return () => window.clearTimeout(timer);
   }, [justApplied]);
+
+  useEffect(() => {
+    if (!copyToastTick) return;
+    const timer = window.setTimeout(() => setCopyToastTick(0), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyToastTick]);
 
   const trimmedDraft = draftTitle.trim();
   const isDirty = trimmedDraft !== savedTitle;
@@ -247,7 +256,7 @@ export function ClassHomeOverlay({
   const openingLabel = teacherClass
     ? formatClassOpeningDate(teacherClass)
     : "미설정";
-  const gradeLabel = teacherClass?.grade?.trim() || "미설정";
+  const gradeLabel = classGradeLabel(teacherClass?.grade);
   const inviteCode = teacherClass?.inviteCode || "—";
 
   /** 파트가 1개 이상 부여됐고 아직 안 낸 파트가 남은 단원 */
@@ -724,6 +733,7 @@ export function ClassHomeOverlay({
           <InfoCell label="개강일" value={openingLabel} flex={1.2} />
           <InfoCell label="학년" value={gradeLabel} flex={0.6} />
           <div
+            data-guide="invite-code"
             className="flex min-w-0 flex-col justify-center rounded-[10px] border border-[#E0E4EA] bg-white px-4"
             style={{ flex: "1.1 1 0" }}
           >
@@ -738,7 +748,11 @@ export function ClassHomeOverlay({
                 type="button"
                 className="pointer-events-auto shrink-0 rounded-[6px] border border-[#E0E4EA] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#6B6B6B] outline-none hover:bg-[#F7F7F7] focus-visible:ring-2 focus-visible:ring-[#1AA7F2]"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(inviteCode);
+                  const code = teacherClass?.inviteCode;
+                  if (!code) return;
+                  void copyToClipboard(code).then((ok) => {
+                    if (ok) setCopyToastTick((tick) => tick + 1);
+                  });
                 }}
               >
                 복사
@@ -747,6 +761,8 @@ export function ClassHomeOverlay({
           </div>
         </div>
       </div>
+
+      <CopyToast visible={copyToastTick > 0} />
     </div>
   );
 }

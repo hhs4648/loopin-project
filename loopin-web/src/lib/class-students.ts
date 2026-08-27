@@ -7,7 +7,7 @@ export type ClassStudent = {
   source?: "enrolled" | "manual";
 };
 
-const STORAGE_KEY = "loopin-class-students";
+const STORAGE_KEY = "haksup-class-students";
 
 function storageKey(classId: string): string {
   return `${STORAGE_KEY}:${classId}`;

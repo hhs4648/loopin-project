@@ -44,7 +44,6 @@ import { SchoolSettingsPanel } from "@/components/teacher/SchoolSettingsPanel";
 import { SidebarBrandHeader } from "@/components/teacher/SidebarBrandHeader";
 import { TeacherSidebarChrome } from "@/components/teacher/TeacherSidebarChrome";
 import { TeacherSidebarFooter } from "@/components/teacher/TeacherSidebarFooter";
-import { VocabBuilderPanel } from "@/components/teacher/VocabBuilderPanel";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 import { type ClassTabId, classTabHref } from "@/lib/class-tabs";
 import {
@@ -113,6 +112,7 @@ import {
   mergeEnrolledStudents,
   migrateLocalDataOnce,
   restoreRemoteOnlyAssignments,
+  syncAllTeacherClassesRemote,
   subscribeClassRealtime,
   syncLocalAssignmentsForClass,
   upsertTeacherClassRemote,
@@ -123,6 +123,10 @@ import {
   syncTeacherProfileRemote,
 } from "@/lib/sync/teacher-session";
 import { isSyncEnabled } from "@/lib/sync/supabase-client";
+import {
+  OPEN_CREATE_CLASS_EVENT,
+  markAssignmentsReviewed,
+} from "@/lib/teacher-onboarding";
 import type { AttemptProgress, StudentProgressRow } from "@/lib/sync/types";
 
 type TeacherFigmaFrameProps = {
@@ -209,7 +213,8 @@ export function TeacherFigmaFrame({
   const [monthStart, setMonthStart] = useState(() =>
     startOfMonth(new Date()),
   );
-  const [periodClassId, setPeriodClassId] = useState<string | null>(null);
+  /** 새 반 만들기 직후 · 수업 기간 확인 전까지는 화면에 올리지 않음 */
+  const [pendingClass, setPendingClass] = useState<TeacherClass | null>(null);
   const [problemSets, setProblemSets] = useState<SavedProblemSet[]>([]);
   const [classAssignmentRecords, setClassAssignmentRecords] = useState<
     ReturnType<typeof loadClassAssignments>
@@ -267,6 +272,8 @@ export function TeacherFigmaFrame({
       if (cancelled) return;
       const localClasses = loadTeacherClasses();
       setClasses(localClasses);
+      await syncAllTeacherClassesRemote(localClasses);
+      if (cancelled) return;
       await migrateLocalDataOnce({
         classes: localClasses,
         problemSets: loadProblemSets(),
@@ -363,17 +370,17 @@ export function TeacherFigmaFrame({
     const refreshAssignments = () =>
       setClassAssignmentRecords(loadClassAssignments());
     const refreshProblemSets = () => setProblemSets(loadProblemSets());
-    window.addEventListener("loopin-class-assignments-changed", refreshAssignments);
-    window.addEventListener("loopin-problem-sets-changed", refreshProblemSets);
+    window.addEventListener("haksup-class-assignments-changed", refreshAssignments);
+    window.addEventListener("haksup-problem-sets-changed", refreshProblemSets);
     window.addEventListener("storage", refreshAssignments);
     window.addEventListener("storage", refreshProblemSets);
     return () => {
       window.removeEventListener(
-        "loopin-class-assignments-changed",
+        "haksup-class-assignments-changed",
         refreshAssignments,
       );
       window.removeEventListener(
-        "loopin-problem-sets-changed",
+        "haksup-problem-sets-changed",
         refreshProblemSets,
       );
       window.removeEventListener("storage", refreshAssignments);
@@ -441,48 +448,39 @@ export function TeacherFigmaFrame({
   );
 
   const handleCreate = useCallback((item: TeacherClass) => {
-    setClasses((prev) => {
-      const next = [...prev, item];
-      saveTeacherClasses(next);
-      return next;
-    });
-    void upsertTeacherClassRemote(item);
     setModalOpen(false);
     setClassPreset(null);
     setEditingClass(null);
-    setPeriodClassId(item.id);
+    setPendingClass(item);
   }, []);
 
   const closePeriodModal = useCallback(() => {
-    setPeriodClassId(null);
+    setPendingClass(null);
   }, []);
 
   const handlePeriodConfirm = useCallback(
     (next: { periodName: string; startDate: string; endDate: string }) => {
-      if (!periodClassId) return;
+      if (!pendingClass) return;
+      const created: TeacherClass = {
+        ...pendingClass,
+        periods: [
+          {
+            id: createPeriodId(),
+            name: next.periodName,
+            startDate: next.startDate,
+            endDate: next.endDate || undefined,
+          },
+        ],
+      };
       setClasses((prev) => {
-        const list = prev.map((c) =>
-          c.id === periodClassId
-            ? {
-                ...c,
-                periods: [
-                  ...(c.periods ?? []),
-                  {
-                    id: createPeriodId(),
-                    name: next.periodName,
-                    startDate: next.startDate,
-                    endDate: next.endDate || undefined,
-                  },
-                ],
-              }
-            : c,
-        );
+        const list = [...prev, created];
         saveTeacherClasses(list);
         return list;
       });
-      setPeriodClassId(null);
+      void upsertTeacherClassRemote(created);
+      setPendingClass(null);
     },
-    [periodClassId],
+    [pendingClass],
   );
 
   const openCreateClass = useCallback((preset?: ClassModalPreset | null) => {
@@ -490,6 +488,24 @@ export function TeacherFigmaFrame({
     setClassPreset(preset ?? null);
     setModalOpen(true);
   }, []);
+
+  /*
+    시작 가이드의 마지막 단계(과제 현황 보기)는 데이터로 알 수 없다 —
+    「과제 탭을 실제로 열었는가」가 판정 기준이라 여기서 기록한다.
+  */
+  useEffect(() => {
+    if (classTab === "assignments") markAssignmentsReviewed();
+  }, [classTab]);
+
+  /*
+    시작 가이드의 「반 만들기」가 이 모달을 연다. 가이드는 레이아웃에 얹혀 있어
+    이 컴포넌트의 상태를 직접 못 만지므로, 이 리포가 이미 쓰는 window 이벤트로 받는다.
+  */
+  useEffect(() => {
+    const onRequest = () => openCreateClass(null);
+    window.addEventListener(OPEN_CREATE_CLASS_EVENT, onRequest);
+    return () => window.removeEventListener(OPEN_CREATE_CLASS_EVENT, onRequest);
+  }, [openCreateClass]);
 
   const openEditClass = useCallback(
     (classId: string) => {
@@ -937,7 +953,21 @@ export function TeacherFigmaFrame({
           />
         ) : null}
 
-        {vocab ? <VocabBuilderPanel /> : null}
+        {vocab ? (
+          <div
+            className="absolute z-10 flex items-center justify-center bg-[#F3F4F5]"
+            style={{
+              left: CLASS_LAYOUT.sidebarWidth,
+              top: 0,
+              width: 1557 - CLASS_LAYOUT.sidebarWidth,
+              height: 973,
+            }}
+          >
+            <p className="text-[16px] font-semibold text-[#15171A]">
+              추후에 추가될 예정입니다.
+            </p>
+          </div>
+        ) : null}
         {assignAssignment ? <AssignAssignmentPanel /> : null}
 
         {mySettings ? (
@@ -1124,13 +1154,13 @@ export function TeacherFigmaFrame({
         />
 
         <ClassPeriodModal
-          open={periodClassId !== null}
+          open={pendingClass !== null}
           onClose={closePeriodModal}
           periodName=""
           startDate=""
           endDate=""
           overlay="frame"
-          dismissible={false}
+          hint="확인을 눌러야 담당 반과 캘린더에 반영돼요. 닫으면 반이 만들어지지 않아요."
           onConfirm={handlePeriodConfirm}
         />
       </div>

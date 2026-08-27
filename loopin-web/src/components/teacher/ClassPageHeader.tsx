@@ -1,7 +1,6 @@
 "use client";
 
-import type { TeacherClass } from "@/lib/teacher-classes";
-import { WEEKDAYS } from "@/lib/teacher-classes";
+import { WEEKDAYS, classGradeLabel, type TeacherClass } from "@/lib/teacher-classes";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 
 type ClassPageHeaderProps = {
@@ -69,7 +68,7 @@ export function ClassPageHeader({
 
 function formatClassMeta(c: TeacherClass, studentCount: number): string {
   const parts: string[] = [];
-  if (c.grade) parts.push(c.grade);
+  parts.push(classGradeLabel(c.grade));
   parts.push(`학생 ${studentCount}명`);
 
   const dayLabels = c.days

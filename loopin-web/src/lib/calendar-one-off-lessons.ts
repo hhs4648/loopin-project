@@ -13,7 +13,7 @@ export type OneOffLesson = {
   createdAt: string;
 };
 
-const STORAGE_KEY = "loopin-calendar-one-off-lessons";
+const STORAGE_KEY = "haksup-calendar-one-off-lessons";
 
 export function loadOneOffLessons(): OneOffLesson[] {
   if (typeof window === "undefined") return [];

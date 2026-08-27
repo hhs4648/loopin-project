@@ -44,10 +44,10 @@ export function SavedProblemSetsPanel() {
     const refresh = () => setProblemSets(loadProblemSets());
     refresh();
     window.addEventListener("storage", refresh);
-    window.addEventListener("loopin-problem-sets-changed", refresh);
+    window.addEventListener("haksup-problem-sets-changed", refresh);
     return () => {
       window.removeEventListener("storage", refresh);
-      window.removeEventListener("loopin-problem-sets-changed", refresh);
+      window.removeEventListener("haksup-problem-sets-changed", refresh);
     };
   }, []);
 

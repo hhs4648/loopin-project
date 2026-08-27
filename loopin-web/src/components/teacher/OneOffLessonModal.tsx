@@ -9,12 +9,17 @@ import {
 } from "react";
 import type { CalendarSlotPreset } from "@/components/teacher/CalendarEventsOverlay";
 import { ClassTimePicker } from "@/components/teacher/ClassTimePicker";
+import { AlertCircleGlyph } from "@/components/teacher/AlertBadgeIcon";
 import {
   createOneOffLessonId,
   type OneOffLesson,
 } from "@/lib/calendar-one-off-lessons";
-import type { TeacherClass, Weekday } from "@/lib/teacher-classes";
-import { parseIsoDateLocal } from "@/lib/teacher-classes";
+import {
+  CLASS_TIME_ORDER_ERROR,
+  parseIsoDateLocal,
+  type TeacherClass,
+  type Weekday,
+} from "@/lib/teacher-classes";
 import { weekdayFromDate } from "@/lib/calendar-layout";
 
 /** 정규 시간표 수업 — 빈 칸·추가 수업과 동일 팝업으로 수정 */
@@ -108,7 +113,7 @@ export function OneOffLessonModal({
       return;
     }
     if (end <= start) {
-      setError("종료 시간은 시작 시간보다 늦어야 해요.");
+      setError(CLASS_TIME_ORDER_ERROR);
       return;
     }
 
@@ -254,6 +259,7 @@ export function OneOffLessonModal({
               <Field label="시작 시간" required>
                 <ClassTimePicker
                   value={start}
+                  invalid={Boolean(start && end && end <= start)}
                   onChange={(next) => {
                     setStart(next);
                     setError("");
@@ -264,6 +270,7 @@ export function OneOffLessonModal({
                 <ClassTimePicker
                   align="right"
                   value={end}
+                  invalid={Boolean(start && end && end <= start)}
                   onChange={(next) => {
                     setEnd(next);
                     setError("");
@@ -282,8 +289,11 @@ export function OneOffLessonModal({
               />
             </Field>
 
-            {error ? (
-              <p className="text-[13px] font-semibold text-[#D83A3A]">{error}</p>
+            {error || (start && end && end <= start) ? (
+              <p className="flex items-center gap-1.5 text-[13px] font-semibold text-[#D83A3A]">
+                <AlertCircleGlyph size={16} color="#D83A3A" />
+                {error || CLASS_TIME_ORDER_ERROR}
+              </p>
             ) : null}
           </div>
 

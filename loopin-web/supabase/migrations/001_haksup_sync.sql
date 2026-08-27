@@ -1,4 +1,4 @@
--- Loopin teacher ↔ student sync (Supabase PostgreSQL + Anonymous Auth + Realtime)
+-- Haksup teacher ↔ student sync (Supabase PostgreSQL + Anonymous Auth + Realtime)
 -- Apply in Supabase SQL editor or via `supabase db push`.
 
 create extension if not exists "pgcrypto";

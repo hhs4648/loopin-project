@@ -68,7 +68,7 @@ function escapeXml(text: string): string {
 const MIMETYPE = "application/hwp+zip";
 
 const VERSION_XML = `${XML_DECL}
-<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="1" buildNumber="0" os="1" xmlVersion="1.5" application="Loopin" appVersion="1, 0, 0, 0 WIN32LEWindows_10"/>`;
+<hv:HCFVersion xmlns:hv="http://www.hancom.co.kr/hwpml/2011/version" tagetApplication="WORDPROCESSOR" major="5" minor="1" micro="1" buildNumber="0" os="1" xmlVersion="1.5" application="Haksup" appVersion="1, 0, 0, 0 WIN32LEWindows_10"/>`;
 
 const SETTINGS_XML = `${XML_DECL}
 <ha:HWPApplicationSetting xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app" xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0">
@@ -96,7 +96,7 @@ function contentHpf(title: string): string {
   <opf:metadata>
     <opf:title>${escapeXml(title)}</opf:title>
     <opf:language>ko</opf:language>
-    <opf:meta name="creator" content="Loopin"/>
+    <opf:meta name="creator" content="Haksup"/>
   </opf:metadata>
   <opf:manifest>
     <opf:item id="header" href="Contents/header.xml" media-type="application/xml"/>

@@ -98,6 +98,34 @@ export const WEEKDAYS: { id: Weekday; label: string }[] = [
   { id: "sun", label: "일" },
 ];
 
+/** HH:MM. 종료가 시작보다 늦어야 함(같은 시각·역전 불가). */
+export function isClassTimeRangeValid(range: ClassTimeRange): boolean {
+  return Boolean(range.start && range.end && range.start < range.end);
+}
+
+export const CLASS_TIME_ORDER_ERROR =
+  "종료 시간은 시작 시간보다 늦어야 해요. 다시 설정해 주세요";
+
+export function classScheduleTimeError(
+  scheduleMode: ClassScheduleMode,
+  unifiedTime: ClassTimeRange,
+  days: Weekday[],
+  dayTimes: Partial<Record<Weekday, ClassTimeRange>>,
+  fallback: ClassTimeRange,
+): string | null {
+  if (scheduleMode !== "per-day") {
+    return isClassTimeRangeValid(unifiedTime) ? null : CLASS_TIME_ORDER_ERROR;
+  }
+  for (const day of days) {
+    const t = dayTimes[day] ?? fallback;
+    if (!isClassTimeRangeValid(t)) {
+      const label = WEEKDAYS.find((w) => w.id === day)?.label ?? day;
+      return `${label}요일 종료 시간은 시작 시간보다 늦어야 해요. 다시 설정해 주세요`;
+    }
+  }
+  return null;
+}
+
 export const WEEKDAY_ORDER: Weekday[] = [
   "mon",
   "tue",
@@ -145,6 +173,28 @@ export function formatClassOpeningDate(c: TeacherClass): string {
   return `${Number(m[1])}년 ${Number(m[2])}월 ${Number(m[3])}일`;
 }
 export const GRADE_OPTIONS = ["중1", "중2", "중3"] as const;
+/** 여러 학년이 섞인 반 — 사이드바 토글·반 만들기 선택값 */
+export const MIXED_GRADE_LABEL = "학년 혼합";
+/** 반 만들기·설정에서 고를 수 있는 학년 (교과서 학년 + 혼합) */
+export const CLASS_GRADE_OPTIONS = [
+  ...GRADE_OPTIONS,
+  MIXED_GRADE_LABEL,
+] as const;
+
+export function isMiddleSchoolGrade(
+  grade: string | undefined,
+): grade is (typeof GRADE_OPTIONS)[number] {
+  return GRADE_OPTIONS.some((option) => option === grade);
+}
+
+/** 중1~중3이 아니면 학년 혼합(빈 값·옛 데이터 포함) */
+export function isMixedGrade(grade: string | undefined): boolean {
+  return !isMiddleSchoolGrade(grade);
+}
+
+export function classGradeLabel(grade: string | undefined): string {
+  return isMiddleSchoolGrade(grade) ? grade : MIXED_GRADE_LABEL;
+}
 
 export type ClassPeriod = {
   id: string;
@@ -187,7 +237,7 @@ export type TeacherClass = {
   createdAt: string;
 };
 
-const STORAGE_KEY = "loopin-teacher-classes";
+const STORAGE_KEY = "haksup-teacher-classes";
 
 export function getColorTheme(id: string): ClassColorTheme {
   return (
@@ -275,10 +325,10 @@ function isSafeClassId(id: string): boolean {
 }
 
 function migrateStudentStorageKey(oldId: string, newId: string): void {
-  const oldKey = `loopin-class-students:${oldId}`;
+  const oldKey = `haksup-class-students:${oldId}`;
   const raw = window.localStorage.getItem(oldKey);
   if (raw == null) return;
-  window.localStorage.setItem(`loopin-class-students:${newId}`, raw);
+  window.localStorage.setItem(`haksup-class-students:${newId}`, raw);
   window.localStorage.removeItem(oldKey);
 }
 
@@ -402,7 +452,7 @@ export function createNewInviteCode(classes: TeacherClass[]): string {
   return createInviteCode(existing);
 }
 
-const REMAP_KEY = "loopin-class-id-remap";
+const REMAP_KEY = "haksup-class-id-remap";
 
 /** Next params / Link 인코딩 차이를 흡수 */
 export function resolveClassId(raw?: string | null): string | undefined {

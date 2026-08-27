@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { figmaRectStyle } from "./figma-rect";
+import { useShrinkToFit } from "./use-shrink-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   COLOR_CORRECT_BG,
@@ -206,6 +207,11 @@ export function BodyTextCPreview({ question }: { question: BodyTextCQuestion }) 
     inputRef.current?.focus();
   };
 
+  /* 지문을 자르지 않고 글씨를 줄여 전부 보이게 한다 (본문 A·B와 같은 이유) */
+  const passageBoxRef = useRef<HTMLDivElement>(null);
+  const passageTextRef = useRef<HTMLParagraphElement>(null);
+  useShrinkToFit(passageBoxRef, passageTextRef, [question.promptKo]);
+
   return (
     <PreviewFrame src={ASSET} alt="본문 C">
       <div
@@ -217,12 +223,14 @@ export function BodyTextCPreview({ question }: { question: BodyTextCQuestion }) 
           style={figmaRectStyle(PASSAGE)}
         />
         <div
-          className="pointer-events-none absolute flex items-center justify-center px-5"
+          ref={passageBoxRef}
+          className="pointer-events-none absolute flex items-center justify-center overflow-hidden px-5 py-1"
           style={figmaRectStyle(PASSAGE)}
         >
           {question.promptKo ? (
             <p
-              className={`line-clamp-3 w-full ${EXERCISE_PASSAGE_KO_CLASS} text-[15px] leading-snug text-[#1F242E]`}
+              ref={passageTextRef}
+              className={`w-full ${EXERCISE_PASSAGE_KO_CLASS} text-[15px] leading-snug text-[#1F242E]`}
             >
               {question.promptKo}
             </p>

@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { ClassTimeRange } from "@/lib/teacher-classes";
+import {
+  CLASS_TIME_ORDER_ERROR,
+  isClassTimeRangeValid,
+  type ClassTimeRange,
+} from "@/lib/teacher-classes";
+import { AlertCircleGlyph } from "@/components/teacher/AlertBadgeIcon";
 
 /** 오전 6시 ~ 오후 10시 */
 const MIN_MINUTES = 6 * 60;
@@ -111,12 +116,14 @@ export function ClassTimePicker({
   value,
   onChange,
   align = "left",
+  invalid = false,
   className = "w-[132px] shrink-0",
 }: {
   value: string;
   onChange: (next: string) => void;
   /** 드롭다운 정렬 — 오른쪽 끝 필드는 "right"로 잘림 방지 */
   align?: "left" | "right";
+  invalid?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -186,7 +193,9 @@ export function ClassTimePicker({
         className={`flex h-11 w-full items-center justify-between gap-1.5 rounded-[10px] border bg-white px-3 text-left text-[13px] font-semibold outline-none ${
           open
             ? "border-[#1AA7F2] ring-2 ring-[#1AA7F2]/20"
-            : "border-[#E1E2E4] hover:border-[#1AA7F2]"
+            : invalid
+              ? "border-[#F16163] hover:border-[#C52B2B]"
+              : "border-[#E1E2E4] hover:border-[#1AA7F2]"
         }`}
       >
         <span className="truncate text-[#15171A]">{formatDisplay(value)}</span>
@@ -298,20 +307,31 @@ export function ClassTimeRangeRow({
   value: ClassTimeRange;
   onChange: (next: ClassTimeRange) => void;
 }) {
+  const invalid = !isClassTimeRangeValid(value);
   return (
-    <div className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-[10px] bg-[#F8F8F7] px-3 py-2.5">
-      <span className="shrink-0 whitespace-nowrap text-[13px] font-semibold text-[#3D4148]">
-        {label}
-      </span>
-      <ClassTimePicker
-        value={value.start}
-        onChange={(start) => onChange({ ...value, start })}
-      />
-      <span className="shrink-0 text-[#9CA3AF]">~</span>
-      <ClassTimePicker
-        value={value.end}
-        onChange={(end) => onChange({ ...value, end })}
-      />
+    <div className="flex w-fit max-w-full flex-col gap-1.5">
+      <div className="flex max-w-full flex-wrap items-center gap-2 rounded-[10px] bg-[#F8F8F7] px-3 py-2.5">
+        <span className="shrink-0 whitespace-nowrap text-[13px] font-semibold text-[#3D4148]">
+          {label}
+        </span>
+        <ClassTimePicker
+          value={value.start}
+          invalid={invalid}
+          onChange={(start) => onChange({ ...value, start })}
+        />
+        <span className="shrink-0 text-[#9CA3AF]">~</span>
+        <ClassTimePicker
+          value={value.end}
+          invalid={invalid}
+          onChange={(end) => onChange({ ...value, end })}
+        />
+      </div>
+      {invalid ? (
+        <p className="flex items-center gap-1.5 text-[12px] font-medium text-[#C52B2B]">
+          <AlertCircleGlyph size={14} color="#C52B2B" />
+          {CLASS_TIME_ORDER_ERROR}
+        </p>
+      ) : null}
     </div>
   );
 }

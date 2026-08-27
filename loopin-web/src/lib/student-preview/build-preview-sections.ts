@@ -14,6 +14,7 @@ import {
 import type { BodyTextCQuestion } from "@/components/teacher/preview/BodyTextCPreview";
 import type { GrammarType1Question } from "@/components/teacher/preview/GrammarType1Preview";
 import type { GrammarType2Step } from "@/components/teacher/preview/GrammarType2Preview";
+import { extractCloze } from "@/lib/word-cloze";
 
 export type PreviewSection =
   | { kind: "word-match"; label: string; pairs: WordMatchPair[] }
@@ -59,18 +60,6 @@ function splitChunks(text: string | undefined, fallback: string): string[] {
     .split(/\s+/)
     .map((part) => part.trim())
     .filter(Boolean);
-}
-
-function extractCloze(example: string | undefined) {
-  if (!example) return null;
-  const match = example.match(/\[([^\]]+)\]/);
-  if (!match?.[1]) return null;
-  const [before, after = ""] = example.split(match[0]);
-  return {
-    englishBefore: before ?? "",
-    englishAfter: after,
-    answer: match[1].trim(),
-  };
 }
 
 function buildThreeChoices(
@@ -184,12 +173,12 @@ export function buildWordQuizPreview(
 }
 
 export function buildWordSpellPreview(item: ProblemWord): PreviewSection {
-  const cloze = extractCloze(item.exampleEn);
+  const cloze = extractCloze(item.exampleEn, item.english);
   if (!cloze) {
     return {
       kind: "unavailable",
       label: "예문 빈칸",
-      reason: "예문(영어)에 [정답] 형태의 빈칸 표시가 있어야 해요.",
+      reason: "예문에 영어 단어(활용형 포함)와 같은 부분이 있어야 빈칸을 만들 수 있어요.",
     };
   }
 

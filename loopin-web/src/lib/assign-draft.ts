@@ -2,7 +2,7 @@ import type { AssignContentRow } from "@/components/teacher/AssignAssignmentModa
 import type { PartCategory } from "@/lib/problem-set-parts";
 import type { CreateProblemSetInput } from "@/lib/problem-sets";
 
-const STORAGE_KEY = "loopin-assign-draft";
+const STORAGE_KEY = "haksup-assign-draft";
 
 export type AssignDraftSource = "problems" | "custom";
 

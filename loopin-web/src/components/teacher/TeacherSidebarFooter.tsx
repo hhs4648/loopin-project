@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { ModalCloseButton } from "@/components/teacher/ModalCloseButton";
 import {
   SIDEBAR_GROUP_CARD_CLASS,
   sidebarCardRowClass,
@@ -35,6 +37,8 @@ export function TeacherSidebarFooter({
   mySettingsActive = false,
   vocabActive = false,
 }: TeacherSidebarFooterProps) {
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
+
   return (
     <>
       {/* SVG 데모 하단 행 가림 */}
@@ -61,16 +65,16 @@ export function TeacherSidebarFooter({
           부가기능
         </p>
         <div className={`${SIDEBAR_GROUP_CARD_CLASS} flex flex-col gap-0.5`}>
-          <Link
-            href="/teacher/vocab"
+          <button
+            type="button"
             aria-label="단어장 만들기"
-            aria-current={vocabActive ? "page" : undefined}
-            className={`box-border h-10 w-full overflow-hidden ${sidebarNavItemClass(vocabActive)}`}
+            className={`box-border h-10 w-full overflow-hidden text-left ${sidebarNavItemClass(vocabActive)}`}
             style={{ WebkitTapHighlightColor: "transparent" }}
+            onClick={() => setComingSoonOpen(true)}
           >
             <BookIcon active={vocabActive} />
             단어장 만들기
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -95,6 +99,39 @@ export function TeacherSidebarFooter({
         </span>
         설정
       </Link>
+
+      {comingSoonOpen ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-6"
+          role="presentation"
+          onClick={() => setComingSoonOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vocab-coming-soon-title"
+            className="relative w-[360px] rounded-2xl bg-white px-8 py-6 shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p
+                id="vocab-coming-soon-title"
+                className="text-[16px] font-semibold text-[#15171A]"
+              >
+                추후에 추가될 예정입니다.
+              </p>
+              <ModalCloseButton onClick={() => setComingSoonOpen(false)} />
+            </div>
+            <button
+              type="button"
+              className="mt-5 w-full rounded-xl bg-[#15171A] px-4 py-2.5 text-[14px] font-semibold text-white outline-none hover:bg-[#2A2C30] focus-visible:ring-2 focus-visible:ring-[#1AA7F2]"
+              onClick={() => setComingSoonOpen(false)}
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

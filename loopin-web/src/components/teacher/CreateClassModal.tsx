@@ -11,13 +11,15 @@ import {
   ClassScheduleFields,
   DEFAULT_CLASS_TIME,
 } from "@/components/teacher/ClassScheduleFields";
+import { ModalCloseButton } from "@/components/teacher/ModalCloseButton";
 import {
   CLASS_COLOR_THEMES,
-  GRADE_OPTIONS,
+  CLASS_GRADE_OPTIONS,
   type ClassScheduleMode,
   type ClassTimeRange,
   type TeacherClass,
   type Weekday,
+  classScheduleTimeError,
   createClassId,
   createNewInviteCode,
   getColorTheme,
@@ -52,7 +54,9 @@ export function CreateClassModal({
   const titleId = useId();
   const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
-  const [grade, setGrade] = useState<(typeof GRADE_OPTIONS)[number] | "">("");
+  const [grade, setGrade] = useState<(typeof CLASS_GRADE_OPTIONS)[number] | "">(
+    "",
+  );
   const [themeId, setThemeId] = useState(CLASS_COLOR_THEMES[2].id);
   const [days, setDays] = useState<Weekday[]>([]);
   const [scheduleMode, setScheduleMode] =
@@ -72,8 +76,8 @@ export function CreateClassModal({
     if (editing) {
       setName(editing.name);
       setGrade(
-        (GRADE_OPTIONS.find((g) => g === editing.grade) as
-          | (typeof GRADE_OPTIONS)[number]
+        (CLASS_GRADE_OPTIONS.find((g) => g === editing.grade) as
+          | (typeof CLASS_GRADE_OPTIONS)[number]
           | undefined) ?? "",
       );
       setThemeId(editing.colorThemeId || CLASS_COLOR_THEMES[2].id);
@@ -142,8 +146,23 @@ export function CreateClassModal({
       setError("반 이름을 입력해 주세요");
       return;
     }
+    if (!grade) {
+      setError("학년 설정이 필요합니다");
+      return;
+    }
     if (days.length === 0) {
       setError("수업 요일을 하나 이상 선택해 주세요");
+      return;
+    }
+    const timeError = classScheduleTimeError(
+      scheduleMode,
+      unifiedTime,
+      days,
+      dayTimes,
+      unifiedTime,
+    );
+    if (timeError) {
+      setError(timeError);
       return;
     }
 
@@ -169,7 +188,7 @@ export function CreateClassModal({
         bar: theme.bar,
         text: theme.text,
       },
-      grade: grade || undefined,
+      grade: grade,
       name: trimmed,
     };
 
@@ -203,18 +222,21 @@ export function CreateClassModal({
         className="flex max-h-[92%] w-[560px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-[#E8E8EA] px-8 py-6">
-          <h2
-            id={titleId}
-            className="text-[20px] font-semibold tracking-tight text-[#15171A]"
-          >
-            {isEdit ? "수업 수정" : "새 반 만들기"}
-          </h2>
-          <p className="mt-1 text-[13px] text-[#6B7280]">
-            {isEdit
-              ? "반 이름 · 색 · 요일 · 수업 시간을 수정할 수 있어요."
-              : "반 이름 · 색 · 요일 · 수업 시간을 설정하면 담당 반에 추가됩니다."}
-          </p>
+        <div className="flex items-start justify-between gap-4 border-b border-[#E8E8EA] px-8 py-6">
+          <div className="min-w-0">
+            <h2
+              id={titleId}
+              className="text-[20px] font-semibold tracking-tight text-[#15171A]"
+            >
+              {isEdit ? "수업 수정" : "새 반 만들기"}
+            </h2>
+            <p className="mt-1 text-[13px] text-[#6B7280]">
+              {isEdit
+                ? "반 이름 · 색 · 요일 · 수업 시간을 수정할 수 있어요. 저장해야 반영됩니다."
+                : "반 이름 · 색 · 요일 · 수업 시간을 정한 뒤, 수업 기간까지 확인해야 담당 반에 추가됩니다."}
+            </p>
+          </div>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         <form
@@ -228,6 +250,7 @@ export function CreateClassModal({
               </span>
               <input
                 ref={nameRef}
+                data-guide="class-name"
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
@@ -240,19 +263,22 @@ export function CreateClassModal({
 
             <label className="flex flex-col gap-1.5">
               <span className="text-[13px] font-semibold text-[#3D4148]">
-                학년
+                학년 <span className="text-[#EF4444]">*</span>
               </span>
               <select
+                data-guide="class-grade"
                 value={grade}
-                onChange={(e) =>
+                aria-required
+                onChange={(e) => {
                   setGrade(
-                    e.target.value as (typeof GRADE_OPTIONS)[number] | "",
-                  )
-                }
-                className="h-11 rounded-[10px] border border-[#E1E2E4] px-3 text-[14px] text-[#15171A] outline-none focus:border-[#1AA7F2]"
+                    e.target.value as (typeof CLASS_GRADE_OPTIONS)[number] | "",
+                  );
+                  if (error) setError("");
+                }}
+                className="h-11 rounded-[10px] border border-[#E1E2E4] px-3 text-[14px] font-semibold text-[#15171A] outline-none focus:border-[#1AA7F2]"
               >
-                <option value="">선택 안 함</option>
-                {GRADE_OPTIONS.map((g) => (
+                <option value="" disabled hidden />
+                {CLASS_GRADE_OPTIONS.map((g) => (
                   <option key={g} value={g}>
                     {g}
                   </option>
@@ -292,13 +318,20 @@ export function CreateClassModal({
               days={days}
               onToggleDay={toggleDay}
               scheduleMode={scheduleMode}
-              onScheduleMode={setScheduleMode}
+              onScheduleMode={(mode) => {
+                setScheduleMode(mode);
+                if (error) setError("");
+              }}
               unifiedTime={unifiedTime}
-              onUnifiedTime={setUnifiedTime}
+              onUnifiedTime={(next) => {
+                setUnifiedTime(next);
+                if (error) setError("");
+              }}
               dayTimes={dayTimes}
-              onDayTime={(day, next) =>
-                setDayTimes((prev) => ({ ...prev, [day]: next }))
-              }
+              onDayTime={(day, next) => {
+                setDayTimes((prev) => ({ ...prev, [day]: next }));
+                if (error) setError("");
+              }}
             />
 
             {error ? (
@@ -316,6 +349,7 @@ export function CreateClassModal({
             </button>
             <button
               type="submit"
+              data-guide="class-save"
               className="h-11 rounded-[10px] bg-[#1AA7F2] px-5 text-[14px] font-semibold text-white hover:bg-[#1596d9]"
             >
               {isEdit ? "저장" : "만들기"}

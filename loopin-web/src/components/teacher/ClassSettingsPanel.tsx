@@ -12,12 +12,13 @@ import {
 import { DeleteClassModal } from "@/components/teacher/DeleteClassModal";
 import {
   CLASS_COLOR_THEMES,
-  GRADE_OPTIONS,
+  CLASS_GRADE_OPTIONS,
   type ClassPeriod,
   type ClassScheduleMode,
   type ClassTimeRange,
   type TeacherClass,
   type Weekday,
+  classScheduleTimeError,
   createPeriodId,
   getColorTheme,
 } from "@/lib/teacher-classes";
@@ -130,8 +131,23 @@ export function ClassSettingsPanel({
       setError("반 이름을 입력해 주세요");
       return;
     }
+    if (!grade) {
+      setError("학년 설정이 필요합니다");
+      return;
+    }
     if (days.length === 0) {
       setError("수업 요일을 하나 이상 선택해 주세요");
+      return;
+    }
+    const timeError = classScheduleTimeError(
+      scheduleMode,
+      unifiedTime,
+      days,
+      dayTimes,
+      DEFAULT_CLASS_TIME,
+    );
+    if (timeError) {
+      setError(timeError);
       return;
     }
     const t = getColorTheme(themeId);
@@ -290,15 +306,19 @@ export function ClassSettingsPanel({
 
           <label className="flex items-center gap-4">
             <span className="w-[100px] shrink-0 text-[14px] font-semibold text-[#3D4148]">
-              학년
+              학년 <span className="text-[#EF4444]">*</span>
             </span>
             <select
               value={grade}
-              onChange={(e) => setGrade(e.target.value)}
+              aria-required
+              onChange={(e) => {
+                setGrade(e.target.value);
+                if (error) setError("");
+              }}
               className="h-10 w-[200px] rounded-[10px] border border-[#E1E2E4] bg-white px-3 text-[15px] font-semibold text-[#15171A] outline-none focus:border-[#1AA7F2]"
             >
-              <option value="">선택</option>
-              {GRADE_OPTIONS.map((g) => (
+              <option value="" disabled hidden />
+              {CLASS_GRADE_OPTIONS.map((g) => (
                 <option key={g} value={g}>
                   {g}
                 </option>
@@ -358,13 +378,20 @@ export function ClassSettingsPanel({
             days={days}
             onToggleDay={toggleDay}
             scheduleMode={scheduleMode}
-            onScheduleMode={setScheduleMode}
+            onScheduleMode={(mode) => {
+              setScheduleMode(mode);
+              if (error) setError("");
+            }}
             unifiedTime={unifiedTime}
-            onUnifiedTime={setUnifiedTime}
+            onUnifiedTime={(next) => {
+              setUnifiedTime(next);
+              if (error) setError("");
+            }}
             dayTimes={dayTimes}
-            onDayTime={(day, next) =>
-              setDayTimes((prev) => ({ ...prev, [day]: next }))
-            }
+            onDayTime={(day, next) => {
+              setDayTimes((prev) => ({ ...prev, [day]: next }));
+              if (error) setError("");
+            }}
           />
 
           {error ? (

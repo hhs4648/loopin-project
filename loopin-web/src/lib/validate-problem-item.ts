@@ -3,6 +3,8 @@ import {
   splitKoreanChunksPhrase,
 } from "@/lib/ai/phrase-chunks";
 import { stripBrackets } from "@/lib/problem-bank";
+import { isInflectedFormOf } from "@/lib/english-inflections";
+import { findExistingCloze, wrapMatchingWord } from "@/lib/word-cloze";
 
 export type AddProblemKind = "word" | "sentence" | "grammar";
 
@@ -11,13 +13,6 @@ function parseSlashParts(value: string): string[] {
     .split(/[|/]/)
     .map((part) => part.trim())
     .filter((part) => part && part !== "-");
-}
-
-function findCloze(exampleEn: string): string | null {
-  const matches = [...exampleEn.matchAll(/\[([^\]]+)\]/g)];
-  if (matches.length === 0) return null;
-  if (matches.length > 1) return "__multiple__";
-  return matches[0]?.[1]?.trim() || null;
 }
 
 /** 형식이 올바르면 null, 아니면 사용자에게 보여줄 이유 */
@@ -43,17 +38,17 @@ export function validateProblemItemInput(input: {
     const exampleEn = (input.exampleEn ?? "").trim();
     const exampleKo = (input.exampleKo ?? "").trim();
     if (!exampleEn) {
-      return "예문(영어)을 입력해 주세요. 빈칸은 [단어] 형태로 적어 주세요.";
+      return "예문(영어)을 입력해 주세요.";
     }
-    const cloze = findCloze(exampleEn);
-    if (cloze === null) {
-      return "예문(영어)에 빈칸이 없어요. 예: The pets you [raise] show...";
-    }
+    const cloze = findExistingCloze(exampleEn);
     if (cloze === "__multiple__") {
       return "예문(영어)의 [빈칸]은 하나만 넣어 주세요.";
     }
-    if (cloze.toLowerCase() !== stripBrackets(en).toLowerCase()) {
-      return `예문 빈칸 [${cloze}]이 영어 단어 "${en}"과 같아야 해요.`;
+    if (cloze !== null && !isInflectedFormOf(cloze, stripBrackets(en))) {
+      return `예문 빈칸 [${cloze}]이 영어 단어 "${en}"(활용형 포함)과 같아야 해요.`;
+    }
+    if (cloze === null && !wrapMatchingWord(exampleEn, en)) {
+      return `예문에 영어 단어 "${en}"이 없어요. 같은 단어나 활용형(held 등)을 넣으면 빈칸이 자동으로 생겨요.`;
     }
     if (!exampleKo) {
       return "예문 뜻(한글)을 입력해 주세요.";

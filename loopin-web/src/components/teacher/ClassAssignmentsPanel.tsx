@@ -10,6 +10,7 @@ import {
 } from "@/lib/assignment-open-at";
 import type { ClassStudent } from "@/lib/class-students";
 import { AlertBadgeIcon } from "@/components/teacher/AlertBadgeIcon";
+import { ModalCloseButton } from "@/components/teacher/ModalCloseButton";
 import { ReissueWrongAnswersModal } from "@/components/teacher/ReissueWrongAnswersModal";
 import {
   formatAssignmentPeriod,
@@ -178,6 +179,22 @@ type ClassAssignmentsPanelProps = {
 
 type StudentProgressFilter = "all" | "idle" | "in_progress" | "completed";
 
+type AssignmentKindFilter = "all" | "assignment" | "reissue";
+type AssignmentStatusFilter = "all" | "incomplete" | "completed";
+type AssignmentHeaderMenu = "kind" | "status" | "picker" | null;
+
+const KIND_FILTER_OPTIONS: { id: AssignmentKindFilter; label: string }[] = [
+  { id: "all", label: "전체" },
+  { id: "assignment", label: "과제" },
+  { id: "reissue", label: "오답" },
+];
+
+const STATUS_FILTER_OPTIONS: { id: AssignmentStatusFilter; label: string }[] = [
+  { id: "all", label: "전체" },
+  { id: "incomplete", label: "미완료" },
+  { id: "completed", label: "완료" },
+];
+
 /**
  * 오답 재출제 전용 필터.
  *
@@ -319,7 +336,10 @@ export function ClassAssignmentsPanel({
   const [selectedId, setSelectedId] = useState<string | null>(
     assignments[0]?.assignment.id ?? null,
   );
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<AssignmentHeaderMenu>(null);
+  const [kindFilter, setKindFilter] = useState<AssignmentKindFilter>("all");
+  const [statusFilter, setStatusFilter] =
+    useState<AssignmentStatusFilter>("incomplete");
   const [studentQuery, setStudentQuery] = useState("");
   const [studentFilter, setStudentFilter] =
     useState<StudentProgressFilter>("all");
@@ -340,10 +360,8 @@ export function ClassAssignmentsPanel({
   const [printError, setPrintError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (
-      assignments.some((item) => item.assignment.id === selectedId)
-    )
-      return;
+    if (selectedId == null) return;
+    if (assignments.some((item) => item.assignment.id === selectedId)) return;
     setSelectedId(assignments[0]?.assignment.id ?? null);
   }, [assignments, selectedId]);
 
@@ -444,6 +462,73 @@ export function ClassAssignmentsPanel({
     return out;
   }, [assignments]);
 
+  const isPickerViewCompleted = (view: AssignedProblemView): boolean => {
+    const key = batchKeyOf(view.assignment);
+    if (key) {
+      const batch = assignments.filter(
+        (item) => batchKeyOf(item.assignment) === key,
+      );
+      if (batch.length === 0) return false;
+      return batch.every((item) => {
+        const targetId = item.assignment.targetStudentId;
+        const rows = progressByAssignment[item.assignment.id] ?? [];
+        const row = targetId
+          ? rows.find((r) => r.studentId === targetId)
+          : rows[0];
+        return row?.status === "completed";
+      });
+    }
+    return isAssignmentFullyCompleted(
+      progressByAssignment[view.assignment.id],
+      students.length,
+    );
+  };
+
+  const filteredPickerViews = useMemo(() => {
+    return pickerViews.filter((view) => {
+      const isReissueView = Boolean(view.assignment.targetStudentId);
+      if (kindFilter === "assignment" && isReissueView) return false;
+      if (kindFilter === "reissue" && !isReissueView) return false;
+      const completed = isPickerViewCompleted(view);
+      if (statusFilter === "completed" && !completed) return false;
+      if (statusFilter === "incomplete" && completed) return false;
+      return true;
+    });
+  }, [
+    pickerViews,
+    kindFilter,
+    statusFilter,
+    assignments,
+    progressByAssignment,
+    students.length,
+  ]);
+
+  const pickerGroups = useMemo(() => {
+    const regular = filteredPickerViews.filter(
+      (view) => !view.assignment.targetStudentId,
+    );
+    const reissue = filteredPickerViews.filter((view) =>
+      Boolean(view.assignment.targetStudentId),
+    );
+    if (kindFilter === "assignment") {
+      return [{ title: "실제 과제 목록", items: regular }];
+    }
+    if (kindFilter === "reissue") {
+      return [{ title: "오답만 출제 목록", items: reissue }];
+    }
+    return [
+      { title: "실제 과제 목록", items: regular },
+      { title: "오답만 출제 목록", items: reissue },
+    ];
+  }, [filteredPickerViews, kindFilter]);
+
+  useEffect(() => {
+    if (filteredPickerViews.some((item) => item.assignment.id === selectedId)) {
+      return;
+    }
+    setSelectedId(filteredPickerViews[0]?.assignment.id ?? null);
+  }, [filteredPickerViews, selectedId]);
+
   /** 드롭다운 대표 과제 id → 그 묶음의 학생 수 (반 전체 과제는 들어가지 않는다) */
   const batchSizeById = useMemo(() => {
     const counts = new Map<string, number>();
@@ -461,9 +546,7 @@ export function ClassAssignmentsPanel({
   }, [assignments, pickerViews]);
 
   const selected =
-    pickerViews.find((item) => item.assignment.id === selectedId) ??
-    assignments.find((item) => item.assignment.id === selectedId) ??
-    pickerViews[0] ??
+    filteredPickerViews.find((item) => item.assignment.id === selectedId) ??
     null;
   const selectedAssignment = selected?.problemSet ?? null;
   const selectedSchedule = selected?.assignment ?? null;
@@ -997,68 +1080,102 @@ export function ClassAssignmentsPanel({
       aria-label="반 과제"
     >
       <div className="no-scrollbar min-w-0 flex-1 overflow-y-auto px-5 pb-8">
-        {selectedAssignment && selectedSchedule ? (
+        {pickerViews.length > 0 ? (
           <>
             <header className="border-b border-[#E8EAED] py-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    {pickerViews.length > 0 ? (
-                      <AssignmentPicker
-                        assignments={pickerViews}
-                        batchSizeById={batchSizeById}
-                        students={students}
-                        selectedId={selected?.assignment.id ?? null}
-                        open={pickerOpen}
-                        progressByAssignment={progressByAssignment}
-                        studentCount={students.length}
-                        onToggle={() => setPickerOpen((prev) => !prev)}
-                        onSelect={(id) => {
-                          setSelectedId(id);
-                          setPickerOpen(false);
-                        }}
-                        onDelete={(view) => {
-                          setDeleteError(null);
-                          setDeletingAssignment(view);
-                          setPickerOpen(false);
-                        }}
-                      />
-                    ) : (
-                      <h2 className="truncate text-[20px] font-bold text-[#15171A]">
-                        {selectedAssignment.title}
-                      </h2>
-                    )}
-                    {selectedTargetLabel ? (
-                      <span className="shrink-0 rounded-full bg-[#ECFDF5] px-2.5 py-1 text-[11px] font-bold text-[#047857]">
-                        오답 재출제 · {selectedTargetLabel}
-                      </span>
-                    ) : null}
-                    {/* 재출제는 원본과의 관계가 곧 의미라 원본으로 바로 건너뛸 수 있게 한다 */}
-                    {isReissue && sourceView ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedId(sourceView.assignment.id);
-                          setPickerOpen(false);
-                        }}
-                        title={sourceView.problemSet.title}
-                        className="inline-flex max-w-[220px] shrink-0 items-center gap-1 rounded-full border border-[#E1E2E4] bg-white px-2.5 py-1 text-[11px] font-bold text-[#6B7280] hover:border-[#1AA7F2] hover:text-[#1274A9]"
-                      >
-                        <span aria-hidden>↩</span>
-                        <span className="truncate">
-                          원본 · {sourceView.problemSet.title}
-                        </span>
-                      </button>
-                    ) : null}
-                    <span className="shrink-0 rounded-full bg-[#EAF6FE] px-2.5 py-1 text-[11px] font-bold text-[#1274A9]">
-                      {formatAssignmentPeriod(selectedSchedule)}
-                    </span>
+                    <HeaderFilterSelect
+                      ariaLabel="완료 여부"
+                      value={statusFilter}
+                      options={STATUS_FILTER_OPTIONS}
+                      open={openMenu === "status"}
+                      onToggle={() =>
+                        setOpenMenu((prev) =>
+                          prev === "status" ? null : "status",
+                        )
+                      }
+                      onSelect={(id) => {
+                        setStatusFilter(id);
+                        setOpenMenu(null);
+                      }}
+                    />
+                    <HeaderFilterSelect
+                      ariaLabel="과제 종류"
+                      value={kindFilter}
+                      options={KIND_FILTER_OPTIONS}
+                      open={openMenu === "kind"}
+                      onToggle={() =>
+                        setOpenMenu((prev) =>
+                          prev === "kind" ? null : "kind",
+                        )
+                      }
+                      onSelect={(id) => {
+                        setKindFilter(id);
+                        setOpenMenu(null);
+                      }}
+                    />
+                    <AssignmentPicker
+                      selected={selected}
+                      groups={pickerGroups}
+                      batchSizeById={batchSizeById}
+                      students={students}
+                      selectedId={selected?.assignment.id ?? null}
+                      open={openMenu === "picker"}
+                      isViewCompleted={isPickerViewCompleted}
+                      onToggle={() =>
+                        setOpenMenu((prev) =>
+                          prev === "picker" ? null : "picker",
+                        )
+                      }
+                      onSelect={(id) => {
+                        setSelectedId(id);
+                        setOpenMenu(null);
+                      }}
+                      onDelete={(view) => {
+                        setDeleteError(null);
+                        setDeletingAssignment(view);
+                        setOpenMenu(null);
+                      }}
+                    />
                   </div>
-                  <p className="mt-1 text-[12px] text-[#9CA3AF]">
-                    {problemSetItemSummary(selectedAssignment)}
-                  </p>
+                  {selectedAssignment && selectedSchedule ? (
+                    <>
+                      <p className="mt-1 text-[12px] text-[#9CA3AF]">
+                        {problemSetItemSummary(selectedAssignment)}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {selectedTargetLabel ? (
+                          <span className="shrink-0 rounded-full bg-[#ECFDF5] px-2.5 py-1 text-[11px] font-bold text-[#047857]">
+                            오답 재출제 · {selectedTargetLabel}
+                          </span>
+                        ) : null}
+                        {isReissue && sourceView ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedId(sourceView.assignment.id);
+                              setOpenMenu(null);
+                            }}
+                            title={sourceView.problemSet.title}
+                            className="inline-flex max-w-[220px] shrink-0 items-center gap-1 rounded-full border border-[#E1E2E4] bg-white px-2.5 py-1 text-[11px] font-bold text-[#6B7280] hover:border-[#1AA7F2] hover:text-[#1274A9]"
+                          >
+                            <span aria-hidden>↩</span>
+                            <span className="truncate">
+                              원본 · {sourceView.problemSet.title}
+                            </span>
+                          </button>
+                        ) : null}
+                        <span className="shrink-0 rounded-full bg-[#EAF6FE] px-2.5 py-1 text-[11px] font-bold text-[#1274A9]">
+                          {formatAssignmentPeriod(selectedSchedule)}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
 
+                {selectedAssignment && selected ? (
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
@@ -1066,7 +1183,7 @@ export function ClassAssignmentsPanel({
                       if (!selectedAssignment) return;
                       setRenameDraft(selectedAssignment.title);
                       setRenameOpen(true);
-                      setPickerOpen(false);
+                      setOpenMenu(null);
                     }}
                     className="inline-flex h-9 items-center justify-center rounded-[10px] border border-[#E1E2E4] bg-white px-3.5 text-[13px] font-bold text-[#3D4148] transition-colors hover:border-[#1AA7F2] hover:bg-[#F0F9FE] hover:text-[#1274A9]"
                   >
@@ -1078,16 +1195,19 @@ export function ClassAssignmentsPanel({
                       if (!selected) return;
                       setDeleteError(null);
                       setDeletingAssignment(selected);
-                      setPickerOpen(false);
+                      setOpenMenu(null);
                     }}
                     className="inline-flex h-9 items-center justify-center rounded-[10px] border border-[#FECACA] bg-white px-3.5 text-[13px] font-bold text-[#EF4444] transition-colors hover:bg-[#FEF2F2]"
                   >
                     삭제하기
                   </button>
                 </div>
+                ) : null}
               </div>
             </header>
 
+            {selectedAssignment && selectedSchedule ? (
+            <>
             <div className="py-5">
               {/*
                 재출제는 학생 1명짜리라 반 단위 지표를 그대로 쓰면 「평균 점수(1명)」
@@ -1211,7 +1331,8 @@ export function ClassAssignmentsPanel({
               <div className="mt-3 flex items-center gap-3">
                 {/*
                   일반·오답 재출제(개인/단체) 모두 같은 줄에 이름 검색을 둔다.
-                  필터·오답 시험지 출력 버튼과 나란히 — 검색은 왼쪽, 출력은 ml-auto 오른쪽.
+                  필터와 나란히 — 검색은 왼쪽. 오답 시험지 출력은 **원본 과제만**.
+                  재출제는 이미 틀린 문항만 모아 둔 과제라 시험지를 한 번 더 뽑지 않는다.
                 */}
                 <div className="flex h-10 w-[240px] shrink-0 items-center rounded-full border border-[#E5E7EB] bg-white px-4">
                   <input
@@ -1252,6 +1373,7 @@ export function ClassAssignmentsPanel({
                   })}
                 </div>
 
+                {!isReissue ? (
                 <button
                   type="button"
                   disabled={printableStudents.length === 0}
@@ -1262,19 +1384,15 @@ export function ClassAssignmentsPanel({
                   }
                   onClick={() =>
                     void openWrongAnswerPrint({
-                      title: isReissue
-                        ? `${selectedTargetLabel ?? "학생"} 오답 시험지`
-                        : "학생 개별 오답 시험지 한 번에 출력",
+                      title: "학생 개별 오답 시험지 한 번에 출력",
                       rows: printableStudents,
                     })
                   }
                   className="ml-auto shrink-0 rounded-full bg-[#2F80ED] px-3.5 py-1.5 text-[12px] font-bold text-white transition-colors hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {/* 한 명뿐인데 「한 번에」는 어색하다 */}
-                  {isReissue && !isBatchReissue
-                    ? "오답 시험지 출력"
-                    : "학생 개별 오답 시험지 한 번에 출력"}
+                  학생 개별 오답 시험지 한 번에 출력
                 </button>
+                ) : null}
               </div>
             </div>
 
@@ -1296,7 +1414,9 @@ export function ClassAssignmentsPanel({
                   {isReissue ? "" : "점수 변화"}
                 </span>
                 <span className="w-[116px] text-center">과제 제출 시간</span>
-                <span className="w-[108px]" aria-hidden />
+                {!isReissue ? (
+                  <span className="w-[108px]" aria-hidden />
+                ) : null}
               </div>
 
               {students.length === 0 ? (
@@ -1409,6 +1529,7 @@ export function ClassAssignmentsPanel({
                         <span className="w-[116px] text-center text-[13px] text-[#6B7280]">
                           {formatSubmittedAt(row.submittedAt)}
                         </span>
+                        {!isReissue ? (
                         <span className="flex w-[108px] justify-end">
                           <button
                             type="button"
@@ -1429,6 +1550,7 @@ export function ClassAssignmentsPanel({
                             오답 시험지 출력
                           </button>
                         </span>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -1806,6 +1928,17 @@ export function ClassAssignmentsPanel({
               />
             ) : null}
           </>
+            ) : (
+              <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
+                <p className="text-[16px] font-bold text-[#15171A]">
+                  조건에 맞는 과제가 없어요
+                </p>
+                <p className="mt-2 text-[13px] text-[#9CA3AF]">
+                  완료 여부나 종류 필터를 바꿔 보세요.
+                </p>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <p className="text-[16px] font-bold text-[#15171A]">
@@ -1897,34 +2030,24 @@ export function ClassAssignmentsPanel({
   );
 }
 
-function AssignmentPicker({
-  assignments,
-  batchSizeById,
-  students,
-  selectedId,
+function HeaderFilterSelect<T extends string>({
+  ariaLabel,
+  value,
+  options,
   open,
-  progressByAssignment,
-  studentCount,
   onToggle,
   onSelect,
-  onDelete,
 }: {
-  assignments: AssignedProblemView[];
-  /** 재출제 묶음 대표 과제 id → 묶음에 속한 학생 수 (1이면 개인) */
-  batchSizeById: Record<string, number>;
-  students: ClassStudent[];
-  selectedId: string | null;
+  ariaLabel: string;
+  value: T;
+  options: readonly { id: T; label: string }[];
   open: boolean;
-  progressByAssignment: Record<string, StudentProgressRow[]>;
-  studentCount: number;
   onToggle: () => void;
-  onSelect: (id: string) => void;
-  onDelete: (view: AssignedProblemView) => void;
+  onSelect: (id: T) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const selected =
-    assignments.find((item) => item.assignment.id === selectedId) ??
-    assignments[0];
+  const selectedLabel =
+    options.find((option) => option.id === value)?.label ?? value;
 
   useEffect(() => {
     if (!open) return;
@@ -1937,15 +2060,157 @@ function AssignmentPicker({
     return () => window.removeEventListener("mousedown", onDown);
   }, [open, onToggle]);
 
-  if (!selected) return null;
-
-  const selectedCohortCount = selected.assignment.targetStudentId
-    ? (batchSizeById[selected.assignment.id] ?? 1)
-    : studentCount;
-  const selectedCompleted = isAssignmentFullyCompleted(
-    progressByAssignment[selected.assignment.id],
-    selectedCohortCount,
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={onToggle}
+        className={`inline-flex h-12 min-w-[92px] items-center justify-between gap-2 rounded-[10px] border bg-white px-3.5 text-left text-[14px] font-bold outline-none transition-colors ${
+          open
+            ? "border-[#1AA7F2] ring-1 ring-[#1AA7F2]"
+            : "border-[#E5E7EB] hover:border-[#D0D3D9]"
+        } text-[#15171A]`}
+      >
+        <span>{selectedLabel}</span>
+        <svg
+          aria-hidden
+          className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+          width="10"
+          height="6"
+          viewBox="0 0 10 6"
+          fill="none"
+        >
+          <path
+            d="M1 1.5L5 4.5L9 1.5"
+            stroke="#9CA3AF"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label={ariaLabel}
+          className="absolute left-0 top-[52px] z-30 min-w-full overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+        >
+          {options.map((option) => {
+            const active = option.id === value;
+            return (
+              <li key={option.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => onSelect(option.id)}
+                  className={`w-full px-3.5 py-2.5 text-left text-[13px] font-bold transition-colors ${
+                    active
+                      ? "bg-[#EAF6FE] text-[#1274A9]"
+                      : "text-[#15171A] hover:bg-[#F3F4F6]"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
   );
+}
+
+function AssignmentPicker({
+  selected,
+  groups,
+  batchSizeById,
+  students,
+  selectedId,
+  open,
+  isViewCompleted,
+  onToggle,
+  onSelect,
+  onDelete,
+}: {
+  selected: AssignedProblemView | null;
+  groups: { title: string; items: AssignedProblemView[] }[];
+  /** 재출제 묶음 대표 과제 id → 묶음에 속한 학생 수 (1이면 개인) */
+  batchSizeById: Record<string, number>;
+  students: ClassStudent[];
+  selectedId: string | null;
+  open: boolean;
+  isViewCompleted: (view: AssignedProblemView) => boolean;
+  onToggle: () => void;
+  onSelect: (id: string) => void;
+  onDelete: (view: AssignedProblemView) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        onToggle();
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open, onToggle]);
+
+  if (!selected) {
+    return (
+      <div ref={ref} className="relative inline-flex max-w-full">
+        <button
+          type="button"
+          aria-label="부여한 과제 선택"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={onToggle}
+          className={`inline-flex h-12 max-w-full items-center gap-2.5 rounded-[10px] border bg-white px-4 text-left text-[16px] font-bold outline-none transition-colors ${
+            open
+              ? "border-[#1AA7F2] ring-1 ring-[#1AA7F2]"
+              : "border-[#E5E7EB] hover:border-[#D0D3D9]"
+          } text-[#9CA3AF]`}
+        >
+          <span>해당하는 과제 없음</span>
+          <svg
+            aria-hidden
+            className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+            width="10"
+            height="6"
+            viewBox="0 0 10 6"
+            fill="none"
+          >
+            <path
+              d="M1 1.5L5 4.5L9 1.5"
+              stroke="#9CA3AF"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        {open ? (
+          <div
+            role="listbox"
+            aria-label="부여한 과제 목록"
+            className="absolute left-0 top-[52px] z-30 min-w-full w-max max-w-[440px] overflow-hidden rounded-[10px] border border-[#E5E7EB] bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+          >
+            <p className="px-4 py-3 text-[13px] font-medium text-[#9CA3AF]">
+              조건에 맞는 과제가 없어요
+            </p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const selectedCompleted = isViewCompleted(selected);
+  const hasAnyItem = groups.some((group) => group.items.length > 0);
 
   return (
     <div ref={ref} className="relative inline-flex max-w-full">
@@ -1986,95 +2251,108 @@ function AssignmentPicker({
       </button>
 
       {open ? (
-        <ul
+        <div
           role="listbox"
           aria-label="부여한 과제 목록"
-          className="no-scrollbar absolute left-0 top-[52px] z-30 max-h-[280px] min-w-full w-max max-w-[400px] overflow-y-auto rounded-[10px] border border-[#E5E7EB] bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+          className="no-scrollbar absolute left-0 top-[52px] z-30 max-h-[320px] min-w-full w-max max-w-[440px] overflow-y-auto rounded-[10px] border border-[#E5E7EB] bg-white py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
         >
-          {assignments.map((view) => {
-            const { assignment, problemSet } = view;
-            const active = assignment.id === selected.assignment.id;
-            const cohortCount = assignment.targetStudentId
-              ? (batchSizeById[assignment.id] ?? 1)
-              : studentCount;
-            const completed = isAssignmentFullyCompleted(
-              progressByAssignment[assignment.id],
-              cohortCount,
-            );
-            const targetLabel = resolveTargetStudentLabel(assignment, students);
-            // 단체 재출제는 이름 대신 인원수로 — 20줄이 1줄로 접혀 있기 때문
-            const size = batchSizeById[assignment.id] ?? 1;
-            const reissueNote = targetLabel
-              ? size > 1
-                ? ` · 오답 재출제 · ${size}명`
-                : ` · 오답 재출제 · ${targetLabel}`
-              : "";
-            return (
-              <li key={assignment.id} className="group relative">
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => onSelect(assignment.id)}
-                  className={`w-full px-4 py-3 pr-10 text-left transition-colors ${
-                    active ? "bg-[#EAF6FE]" : "hover:bg-[#F3F4F6]"
-                  }`}
-                >
-                  <span className="block truncate text-[15px] font-bold text-[#15171A]">
-                    {assignmentPickerLabel(problemSet)}
-                    {completed ? (
-                      <span className="text-[#10B981]"> (완료)</span>
-                    ) : null}
-                  </span>
-                  <span className="mt-0.5 block text-[12px] font-medium text-[#9CA3AF]">
-                    {formatAssignmentSchedule(assignment)}
-                    {reissueNote}
-                  </span>
-                  {/*
-                    아직 공개 전이면 학생 앱에는 안 보인다. 표시가 없으면 교사는
-                    「출제가 안 됐나」로 읽는다 — 언제 열리는지까지 적어 준다.
-                  */}
-                  {isScheduledForLater(assignment.openAt) ? (
-                    <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#FFF4D6] px-2 py-0.5 text-[11px] font-bold text-[#8A6100]">
-                      예약 · {formatOpenAtKo(assignment.openAt)}
-                    </span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDelete(view);
-                  }}
-                  aria-label={
-                    size > 1
-                      ? `「${problemSet.title}」 재출제 ${size}명 전체 취소`
-                      : `「${problemSet.title}」 부여 취소`
-                  }
-                  title={
-                    size > 1 ? `재출제 ${size}명 전체 취소` : "부여한 과제 취소"
-                  }
-                  className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#B0B4BB] opacity-0 transition-all hover:bg-[#FEE7E7] hover:text-[#C52B2B] group-hover:opacity-100"
-                >
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 11 11"
-                    fill="none"
-                    aria-hidden
-                  >
-                    <path
-                      d="M1.5 1.5l8 8M9.5 1.5l-8 8"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+          {!hasAnyItem ? (
+            <p className="px-4 py-3 text-[13px] font-medium text-[#9CA3AF]">
+              조건에 맞는 과제가 없어요
+            </p>
+          ) : (
+            groups.map((group) => (
+              <div key={group.title}>
+                <p className="sticky top-0 z-[1] bg-white px-4 py-1.5 text-[11px] font-bold text-[#6B7280]">
+                  {group.title}
+                </p>
+                {group.items.length === 0 ? (
+                  <p className="px-4 py-2 text-[12px] text-[#9CA3AF]">
+                    해당하는 과제가 없어요
+                  </p>
+                ) : (
+                  group.items.map((view) => {
+                    const { assignment, problemSet } = view;
+                    const active = assignment.id === selectedId;
+                    const completed = isViewCompleted(view);
+                    const targetLabel = resolveTargetStudentLabel(
+                      assignment,
+                      students,
+                    );
+                    const size = batchSizeById[assignment.id] ?? 1;
+                    const reissueNote = targetLabel
+                      ? size > 1
+                        ? ` · ${size}명`
+                        : ` · ${targetLabel}`
+                      : "";
+                    return (
+                      <div key={assignment.id} className="group relative">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={active}
+                          onClick={() => onSelect(assignment.id)}
+                          className={`w-full px-4 py-3 pr-10 text-left transition-colors ${
+                            active ? "bg-[#EAF6FE]" : "hover:bg-[#F3F4F6]"
+                          }`}
+                        >
+                          <span className="block truncate text-[15px] font-bold text-[#15171A]">
+                            {assignmentPickerLabel(problemSet)}
+                            {completed ? (
+                              <span className="text-[#10B981]"> (완료)</span>
+                            ) : null}
+                          </span>
+                          <span className="mt-0.5 block text-[12px] font-medium text-[#9CA3AF]">
+                            {formatAssignmentSchedule(assignment)}
+                            {reissueNote}
+                          </span>
+                          {isScheduledForLater(assignment.openAt) ? (
+                            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#FFF4D6] px-2 py-0.5 text-[11px] font-bold text-[#8A6100]">
+                              예약 · {formatOpenAtKo(assignment.openAt)}
+                            </span>
+                          ) : null}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDelete(view);
+                          }}
+                          aria-label={
+                            size > 1
+                              ? `「${problemSet.title}」 재출제 ${size}명 전체 취소`
+                              : `「${problemSet.title}」 부여 취소`
+                          }
+                          title={
+                            size > 1
+                              ? `재출제 ${size}명 전체 취소`
+                              : "부여한 과제 취소"
+                          }
+                          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#B0B4BB] opacity-0 transition-all hover:bg-[#FEE7E7] hover:text-[#C52B2B] group-hover:opacity-100"
+                        >
+                          <svg
+                            width="11"
+                            height="11"
+                            viewBox="0 0 11 11"
+                            fill="none"
+                            aria-hidden
+                          >
+                            <path
+                              d="M1.5 1.5l8 8M9.5 1.5l-8 8"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ))
+          )}
+        </div>
       ) : null}
     </div>
   );
@@ -2119,13 +2397,18 @@ function RenameAssignmentTitleModal({
         className="relative w-full max-w-[400px] overflow-hidden rounded-2xl bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="px-7 pt-6 pb-2">
-          <h2 className="text-[18px] font-bold tracking-tight text-[#15171A]">
-            이름 수정하기
-          </h2>
-          <p className="mt-2 text-[13px] font-medium text-[#8B8F96]">
-            과제에 보이는 이름만 바꿔요.
-          </p>
+        <div className="flex items-start justify-between gap-3 px-7 pt-6 pb-2">
+          <div className="min-w-0">
+            <h2 className="text-[18px] font-bold tracking-tight text-[#15171A]">
+              이름 수정하기
+            </h2>
+            <p className="mt-2 text-[13px] font-medium text-[#8B8F96]">
+              과제에 보이는 이름만 바꿔요.
+            </p>
+          </div>
+          <ModalCloseButton onClick={onClose} />
+        </div>
+        <div className="px-7 pb-2">
           <input
             autoFocus
             value={value}
@@ -2212,17 +2495,22 @@ function DeleteAssignmentModal({
         className="relative w-full max-w-[520px] overflow-hidden rounded-[28px] bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="px-8 pt-8 pb-2">
-          <AlertBadgeIcon
-            className="mb-5"
-            size={58}
-            iconSize={28}
-            background="#FFEBE8"
-            color="#D40924"
-          />
-          <h2 className="text-[22px] font-bold tracking-tight text-[#13161B]">
-            이 과제 부여를 취소할까요?
-          </h2>
+        <div className="flex items-start justify-between gap-3 px-8 pt-8 pb-2">
+          <div className="min-w-0">
+            <AlertBadgeIcon
+              className="mb-5"
+              size={58}
+              iconSize={28}
+              background="#FFEBE8"
+              color="#D40924"
+            />
+            <h2 className="text-[22px] font-bold tracking-tight text-[#13161B]">
+              이 과제 부여를 취소할까요?
+            </h2>
+          </div>
+          <ModalCloseButton onClick={onClose} />
+        </div>
+        <div className="px-8 pb-2">
           <div className="mt-4 flex flex-wrap gap-2">
             {meta ? (
               <span className="inline-flex items-center rounded-full bg-[#ECEFF2] px-3.5 py-2 text-[13px] font-bold text-[#3C434D]">

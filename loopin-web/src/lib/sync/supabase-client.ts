@@ -25,7 +25,7 @@ export function getSupabase(): SupabaseClient | null {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
-        storageKey: "loopin-teacher-supabase-auth",
+        storageKey: "haksup-teacher-supabase-auth",
       },
     });
   }

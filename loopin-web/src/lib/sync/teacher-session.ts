@@ -1,15 +1,9 @@
 import { getSupabase, isSyncEnabled } from "@/lib/sync/supabase-client";
 
-const TEACHER_UID_KEY = "loopin-teacher-supabase-uid";
+const TEACHER_UID_KEY = "haksup-teacher-supabase-uid";
 
 /**
- * 진행 중인 세션 확보 작업. **동시에 여러 번 호출돼도 익명 로그인은 한 번만** 하도록 잡아둔다.
- *
- * 이 가드가 없으면 화면 진입 시 여러 곳에서 동시에 부른 호출이 전부 「세션 없음」을 보고
- * 각자 `signInAnonymously()`를 실행한다. 익명 교사 계정이 여러 개 생기고 마지막 것이
- * localStorage를 덮어써서, **반을 만든 계정과 과제를 부여하는 계정이 달라질 수 있다.**
- * 그러면 `classes.teacher_id`가 안 맞아 RLS가 과제 저장을 막고, 학생 앱에는 과제가 오지 않는다.
- * (2026-08-06 배포본 `/teacher` 콜드 로드에서 signup이 2번 발생하는 것을 확인)
+ * 진행 중인 세션 확보. 이메일 로그인·데모(익명) 세션 모두 인정한다.
  */
 let sessionInFlight: Promise<string | null> | null = null;
 
@@ -18,29 +12,20 @@ export async function ensureTeacherSession(): Promise<string | null> {
   const supabase = getSupabase();
   if (!supabase) return null;
 
-  // 이미 진행 중이면 그 결과를 같이 기다린다 — 두 번째 signInAnonymously를 막는다.
   if (sessionInFlight) return sessionInFlight;
 
   sessionInFlight = (async () => {
     const { data: existing } = await supabase.auth.getSession();
-    if (existing.session?.user?.id) {
-      await ensureTeacherProfile(existing.session.user.id);
-      return existing.session.user.id;
-    }
+    const user = existing.session?.user;
+    if (!user?.id) return null;
 
-    const { data, error } = await supabase.auth.signInAnonymously();
-    if (error || !data.user) {
-      console.warn("[sync] teacher anonymous sign-in failed", error?.message);
-      return null;
-    }
-
-    await ensureTeacherProfile(data.user.id);
+    await ensureTeacherProfile(user.id);
     try {
-      window.localStorage.setItem(TEACHER_UID_KEY, data.user.id);
+      window.localStorage.setItem(TEACHER_UID_KEY, user.id);
     } catch {
       /* ignore */
     }
-    return data.user.id;
+    return user.id;
   })();
 
   try {
@@ -81,7 +66,7 @@ export async function syncTeacherProfileRemote(updates: {
   }
 }
 
-async function ensureTeacherProfile(userId: string): Promise<void> {
+export async function ensureTeacherProfile(userId: string): Promise<void> {
   const supabase = getSupabase();
   if (!supabase) return;
 

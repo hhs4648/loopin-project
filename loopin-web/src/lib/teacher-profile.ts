@@ -5,7 +5,7 @@ export type TeacherProfile = {
   praisePassThreshold: number;
 };
 
-const STORAGE_KEY = "loopin-teacher-profile";
+const STORAGE_KEY = "haksup-teacher-profile";
 
 export const DEFAULT_PRAISE_PASS_THRESHOLD = 70;
 

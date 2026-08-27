@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { figmaRectStyle } from "./figma-rect";
+import { useShrinkToFit } from "./use-shrink-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   COLOR_CORRECT_BG,
@@ -90,12 +91,27 @@ export function BodyTextAPreview({ question }: { question: BodyTextAQuestion }) 
     setResult("playing");
   };
 
+  /*
+    지문은 예전에 `line-clamp-2`로 두 줄만 남기고 잘랐다. 선생님이 미리보기를 여는
+    이유가 「학생에게 이렇게 나간다」를 보는 것인데 본문이 잘리면 확인이 안 된다.
+    상자는 시안 좌표로 고정이라 늘릴 수 없어서 **글씨를 줄여 전부 보이게** 한다.
+  */
+  const passageBoxRef = useRef<HTMLDivElement>(null);
+  const passageTextRef = useRef<HTMLParagraphElement>(null);
+  useShrinkToFit(passageBoxRef, passageTextRef, [question.exampleEn]);
+
   return (
     <PreviewFrame src={ASSET} alt="본문 A">
       <div className={`absolute inset-0 ${showFeedback ? "pointer-events-none" : ""}`}>
         <div aria-hidden className="pointer-events-none absolute bg-white" style={figmaRectStyle(PASSAGE)} />
-        <div className="pointer-events-none absolute flex items-center px-5" style={figmaRectStyle(PASSAGE)}>
-          <p className={`line-clamp-2 ${EXERCISE_PASSAGE_EN_CLASS}`}>{question.exampleEn}</p>
+        <div
+          ref={passageBoxRef}
+          className="pointer-events-none absolute flex items-center overflow-hidden px-5 py-1"
+          style={figmaRectStyle(PASSAGE)}
+        >
+          <p ref={passageTextRef} className={EXERCISE_PASSAGE_EN_CLASS}>
+            {question.exampleEn}
+          </p>
         </div>
 
         <div aria-hidden className="pointer-events-none absolute bg-[#F6F9FD]" style={figmaRectStyle(SENTENCE_BOX)} />

@@ -10,7 +10,7 @@ alwaysApply: true
 
 ## 작업 시작 전 반드시 읽을 것
 
-- `loopin-web/AGENTS.md` — 교사 웹의 전체 규칙 (명령어, 아키텍처, 디자인 제약, 학생앱과 맞물리는 부분)
+- `loopin-web/AGENTS.md` — **학습** 교사 웹의 전체 규칙 (제품 이름·명령어·아키텍처·디자인 제약)
 - `uiux.md` §2.3 — 버튼·이동 맵
 - `figma.md` — `assets/`의 Figma 익스포트 사용 규칙
 

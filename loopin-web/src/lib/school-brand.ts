@@ -19,10 +19,10 @@ export type SchoolBrand = {
   colorThemeId: string;
 };
 
-const STORAGE_KEY = "loopin-school-brand";
+const STORAGE_KEY = "haksup-school-brand";
 
 export const DEFAULT_SCHOOL_BRAND: SchoolBrand = {
-  name: "루핀중학교",
+  name: "우리중학교",
   markMode: "text",
   markText: "",
   colorThemeId: "blue",
@@ -51,7 +51,7 @@ export function normalizeBrand(input: Partial<SchoolBrand>): SchoolBrand {
   // 빈 문구 허용 — 기본값으로 '루'를 채우지 않음
   const markText = (input.markText ?? "").slice(0, 2);
   return {
-    name: (input.name ?? DEFAULT_SCHOOL_BRAND.name).trim() || "루핀중학교",
+    name: (input.name ?? DEFAULT_SCHOOL_BRAND.name).trim() || "우리중학교",
     markMode: input.markMode === "image" ? "image" : "text",
     markText,
     markImageDataUrl: input.markImageDataUrl,

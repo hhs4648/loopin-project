@@ -7,7 +7,7 @@ import { resolveAssignmentOpenAt } from "@/lib/assignment-open-at";
 import type { SavedProblemSet } from "@/lib/problem-sets";
 import type { AttemptProgress } from "@/lib/sync/types";
 
-const STORAGE_KEY = "loopin-class-assignments";
+const STORAGE_KEY = "haksup-class-assignments";
 
 /**
  * 마감 없는 과제(오답 재출제 등)용 센티널.
@@ -110,7 +110,7 @@ export function loadClassAssignments(): ClassAssignment[] {
 export function saveClassAssignments(assignments: ClassAssignment[]): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
-  window.dispatchEvent(new Event("loopin-class-assignments-changed"));
+  window.dispatchEvent(new Event("haksup-class-assignments-changed"));
 }
 
 export function createClassAssignment(

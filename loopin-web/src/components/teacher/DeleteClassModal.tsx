@@ -2,6 +2,7 @@
 
 import { useEffect, useId } from "react";
 import { AlertBadgeIcon } from "@/components/teacher/AlertBadgeIcon";
+import { ModalCloseButton } from "@/components/teacher/ModalCloseButton";
 
 type DeleteClassModalProps = {
   open: boolean;
@@ -46,20 +47,23 @@ export function DeleteClassModal({
         aria-labelledby={titleId}
         className="relative z-10 w-full max-w-[400px] overflow-hidden rounded-2xl bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
       >
-        <div className="px-7 pt-6 pb-2">
-          <AlertBadgeIcon className="mb-4" />
-          <h2
-            id={titleId}
-            className="text-[18px] font-bold tracking-tight text-[#15171A]"
-          >
-            이 반을 삭제할까요?
-          </h2>
-          <p className="mt-2 text-[14px] leading-relaxed text-[#6B7280]">
-            <span className="font-semibold text-[#15171A]">
-              「{classLabel}」
-            </span>
-            반이 담당 반 목록에서 사라져요. 삭제 후에는 되돌릴 수 없습니다.
-          </p>
+        <div className="flex items-start justify-between gap-3 px-7 pt-6 pb-2">
+          <div className="min-w-0">
+            <AlertBadgeIcon className="mb-4" />
+            <h2
+              id={titleId}
+              className="text-[18px] font-bold tracking-tight text-[#15171A]"
+            >
+              이 반을 삭제할까요?
+            </h2>
+            <p className="mt-2 text-[14px] leading-relaxed text-[#6B7280]">
+              <span className="font-semibold text-[#15171A]">
+                「{classLabel}」
+              </span>
+              반이 담당 반 목록에서 사라져요. 삭제 후에는 되돌릴 수 없습니다.
+            </p>
+          </div>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
         <div className="flex justify-end gap-2 px-7 py-5">

@@ -1,5 +1,6 @@
-# 루핀 — 개발 워크플로 (Claude Code 가이드)
+# 학습 — 개발 워크플로 (Claude Code 가이드)
 
+> **제품 이름: 학습.** 코드·리포는 `haksup-*`.  
 > **언제 쓰나?** 매일 개발할 때, Claude Code에게 뭐라고 말할지 모를 때
 
 ---
@@ -56,11 +57,11 @@ architecture.md features/quiz 폴더에 맞게
 
 ---
 
-## 2. 루핀 개발 단계
+## 2. 학습 개발 단계
 
 ### Phase 0: 기획 ✅ (지금)
 
-- [x] requirements.md — 루핀 정의
+- [x] requirements.md — 학습 정의
 - [x] uiux.md — 학생/교사 플로우
 - [x] design.md — 색·컴포넌트
 - [ ] figma.md — Figma URL (선택)

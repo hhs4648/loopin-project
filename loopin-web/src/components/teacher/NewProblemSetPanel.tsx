@@ -63,6 +63,7 @@ import {
 } from "@/lib/problem-set-parts";
 import {
   type TeacherClass,
+  isMixedGrade,
   loadTeacherClasses,
 } from "@/lib/teacher-classes";
 import { type AssignContentRow } from "@/components/teacher/AssignAssignmentModal";
@@ -259,6 +260,7 @@ function RangeDropdown({
       <button
         type="button"
         aria-label={ariaLabel}
+        data-guide={ariaLabel === "학년 선택" ? "problem-unit" : undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={onToggle}
@@ -1015,6 +1017,7 @@ function AssignedBadge({ label }: { label: string }) {
 
 function BankItemRow({
   id,
+  number,
   checked,
   assignedLabel,
   dimmed,
@@ -1027,6 +1030,8 @@ function BankItemRow({
   children,
 }: {
   id: string;
+  /** 단원(교과서) 순서 번호 — 1부터. 파트·부여 정렬과 무관 */
+  number: number;
   checked: boolean;
   /** 이미 낸 반 이름 — 없으면 배지를 달지 않는다 */
   assignedLabel?: string | null;
@@ -1071,6 +1076,15 @@ function BankItemRow({
           className="flex min-w-0 flex-1 items-start gap-1.5 text-left hover:opacity-90"
         >
           <ItemCheck checked={checked} />
+          {number > 0 ? (
+            <span
+              className={`mt-px w-6 shrink-0 text-right text-[12px] font-semibold tabular-nums leading-[14px] ${
+                dimmed && !checked ? "text-[#C4C7CE]" : "text-[#9CA3AF]"
+              }`}
+            >
+              {number}
+            </span>
+          ) : null}
           <span className={`min-w-0 ${dimmed && !checked ? "opacity-65" : ""}`}>
             {assignedLabel ? (
               <span className="mb-1 block">
@@ -1160,6 +1174,8 @@ type BankListOwnProps<T> = {
   assignedLabel: (id: string) => string | null;
   /** 선택한 반이 전부 받은 문항인지 — 이미 아래로 정렬돼 넘어온다 */
   isDone: (id: string) => boolean;
+  /** 단원(교과서) 순서 번호 — 1부터 */
+  itemNumber: (id: string) => number;
 };
 
 /**
@@ -1181,6 +1197,7 @@ function BankList<T extends { id: string }>({
   onEditItem,
   assignedLabel,
   isDone,
+  itemNumber,
   unitLabel,
   previewLabel,
   editLabel,
@@ -1198,6 +1215,7 @@ function BankList<T extends { id: string }>({
     <BankItemRow
       key={item.id}
       id={item.id}
+      number={itemNumber(item.id)}
       checked={selectedIds.has(item.id)}
       assignedLabel={assignedLabel(item.id)}
       dimmed={isDone(item.id)}
@@ -1598,7 +1616,10 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
 
   const selectedGrade = rangeValues.grade ?? GRADE_OPTIONS[0];
   const filteredReceiverClasses = useMemo(
-    () => classes.filter((c) => (c.grade ?? "") === selectedGrade),
+    () =>
+      classes.filter(
+        (c) => (c.grade ?? "") === selectedGrade || isMixedGrade(c.grade),
+      ),
     [classes, selectedGrade]
   );
 
@@ -2369,6 +2390,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
               <WordBankList
                 assignedLabel={itemAssignedLabel}
                 isDone={isDoneItem}
+                itemNumber={(id) => wordIds.indexOf(id) + 1}
                 items={wordScope.items}
                 restItems={wordScope.rest}
                 showRest={showRest.words}
@@ -2464,6 +2486,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
               <SentenceBankList
                 assignedLabel={itemAssignedLabel}
                 isDone={isDoneItem}
+                itemNumber={(id) => sentenceIds.indexOf(id) + 1}
                 items={sentenceScope.items}
                 restItems={sentenceScope.rest}
                 showRest={showRest.sentences}
@@ -2554,6 +2577,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
               <GrammarBankList
                 assignedLabel={itemAssignedLabel}
                 isDone={isDoneItem}
+                itemNumber={(id) => grammarIds.indexOf(id) + 1}
                 items={grammarScope.items}
                 restItems={grammarScope.rest}
                 showRest={showRest.grammar}
@@ -2734,6 +2758,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
             });
             router.push("/teacher/problems/assign");
           }}
+          data-guide="problem-submit"
           className={`h-11 rounded-[10px] px-5 text-[14px] font-semibold transition-colors ${
             submitting || !unitSelected || selectedClassIds.length === 0
               ? "cursor-not-allowed bg-[#E5E7EB] text-[#6B7280]"

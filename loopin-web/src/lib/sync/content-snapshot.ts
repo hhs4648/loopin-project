@@ -10,23 +10,7 @@ import type {
   CustomAssignmentDraft,
   SavedProblemSet,
 } from "@/lib/problem-sets";
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** 예문 빈칸용 — 문장 속 surface를 [surface]로 감싼다 */
-function wrapSurfaceInExample(sentence: string, surface: string): string {
-  const trimmed = sentence.trim();
-  const target = surface.trim();
-  if (!trimmed || !target) return trimmed;
-  const re = new RegExp(`\\b${escapeRegExp(target)}\\b`);
-  if (re.test(trimmed)) return trimmed.replace(re, `[${target}]`);
-  const reI = new RegExp(`\\b${escapeRegExp(target)}\\b`, "i");
-  const match = trimmed.match(reI);
-  if (match?.[0]) return trimmed.replace(reI, `[${match[0]}]`);
-  return trimmed;
-}
+import { ensureWordCloze } from "@/lib/word-cloze";
 
 function buildCustomDraftSnapshot(
   input: Pick<
@@ -44,7 +28,10 @@ function buildCustomDraftSnapshot(
     id: item.id,
     english: (item.lemma || item.surface).trim() || item.surface,
     korean: item.meaningKo.trim() || item.surface,
-    exampleEn: wrapSurfaceInExample(item.sourceSentence, item.surface),
+    exampleEn:
+      ensureWordCloze(item.sourceSentence, item.surface) ??
+      ensureWordCloze(item.sourceSentence, item.lemma || "") ??
+      item.sourceSentence.trim(),
     exampleKo: item.translationKo.trim() || undefined,
   }));
 
@@ -127,7 +114,7 @@ export function buildContentSnapshot(
       id: w.id,
       english: w.english,
       korean: w.korean,
-      exampleEn: w.exampleEn,
+      exampleEn: ensureWordCloze(w.exampleEn, w.english) ?? w.exampleEn,
       exampleKo: w.exampleKo,
     }));
 

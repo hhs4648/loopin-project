@@ -149,9 +149,9 @@ async function fetchWikitext(
         headers: {
           Accept: "application/json",
           "User-Agent":
-            "LoopinTeacherWeb/1.0 (https://loopin.app; custom-assignment; educational)",
+            "HaksupTeacherWeb/1.0 (https://haksup.com; custom-assignment; educational)",
           "Api-User-Agent":
-            "LoopinTeacherWeb/1.0 (https://loopin.app; custom-assignment; educational)",
+            "HaksupTeacherWeb/1.0 (https://haksup.com; custom-assignment; educational)",
         },
         signal: AbortSignal.timeout(12_000),
       });

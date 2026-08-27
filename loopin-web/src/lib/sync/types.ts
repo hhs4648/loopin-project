@@ -1,6 +1,6 @@
 /**
  * Shared teacher ↔ student sync DTOs.
- * Contract source: student-teacher-sync.md + supabase/migrations/001_loopin_sync.sql
+ * Contract source: student-teacher-sync.md + supabase/migrations/001_haksup_sync.sql
  */
 
 export type SyncRole = "student" | "teacher";

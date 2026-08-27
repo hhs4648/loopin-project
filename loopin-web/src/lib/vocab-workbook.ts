@@ -26,8 +26,8 @@ export type VocabSet = {
 
 export const DEFAULT_VOCAB_WORDS_PER_DAY = 8;
 
-const LEGACY_STORAGE_KEY = "loopin-vocab-workbook";
-const SETS_STORAGE_KEY = "loopin-vocab-sets";
+const LEGACY_STORAGE_KEY = "haksup-vocab-workbook";
+const SETS_STORAGE_KEY = "haksup-vocab-sets";
 
 function createId(prefix = "vocab"): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()
@@ -391,7 +391,7 @@ export function loadVocabSets(): VocabSet[] {
 export function saveVocabSets(sets: VocabSet[]): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(SETS_STORAGE_KEY, JSON.stringify(sets));
-  window.dispatchEvent(new Event("loopin-vocab-sets-changed"));
+  window.dispatchEvent(new Event("haksup-vocab-sets-changed"));
 }
 
 export function upsertVocabSet(sets: VocabSet[], next: VocabSet): VocabSet[] {

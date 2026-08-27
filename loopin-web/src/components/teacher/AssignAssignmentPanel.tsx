@@ -36,7 +36,7 @@ function AssignPageCover() {
           top: 0,
           width: 1557 - CLASS_LAYOUT.sidebarWidth,
           height: 973,
-          background: "#F3F4F5",
+          background: "#FFFFFF",
         }}
       />
     </div>

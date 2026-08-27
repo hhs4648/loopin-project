@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { figmaRectStyle } from "./figma-rect";
+import { useShrinkToFit } from "./use-shrink-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   COLOR_CORRECT_BG,
@@ -343,7 +344,7 @@ export function WordSpellPreview({ question }: { question: WordSpellQuestion }) 
         />
         <div className="absolute overflow-hidden" style={figmaRectStyle(CARD_TEXT)}>
           <div className="flex h-full flex-col gap-2.5">
-            <p className={`${EXERCISE_PASSAGE_KO_MUTED_CLASS} shrink-0 line-clamp-2 leading-[1.35]`}>
+            <p className={`${EXERCISE_PASSAGE_KO_MUTED_CLASS} shrink-0 leading-[1.35]`}>
               {question.korean}
             </p>
             <p className={`${EXERCISE_PASSAGE_EN_CLASS} min-h-0 overflow-hidden leading-[1.45]`}>

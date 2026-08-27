@@ -88,7 +88,7 @@ function renderWorksheetAnswersHtml(sheet: WrongAnswerWorksheet): string | null 
   let a = 1;
   const answers = sheet.items
     .map((item) => {
-      const line = `<p class="ws-ans">${a}. [${escapeHtml(item.category)} · ${escapeHtml(item.typeLabel)}] ${escapeHtml(item.answerKey)}</p>`;
+      const line = `<p class="ws-ans">${a}. ${escapeHtml(item.answerKey)}</p>`;
       a += 1;
       return line;
     })

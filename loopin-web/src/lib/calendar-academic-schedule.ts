@@ -19,7 +19,7 @@ export type AcademicScheduleSettings = {
   includePublicHolidays: boolean;
 };
 
-const STORAGE_KEY = "loopin-calendar-academic-schedule";
+const STORAGE_KEY = "haksup-calendar-academic-schedule";
 
 export const DEFAULT_ACADEMIC_SCHEDULE: AcademicScheduleSettings = {
   holidays: [],

@@ -1,5 +1,6 @@
-# 루핀 — 아키텍처
+# 학습 — 아키텍처
 
+> **제품 이름: 학습.** 코드·리포는 `haksup-*`.  
 > **언제 쓰나?** 파일을 어디에 둘지, API·데이터 구조 설계할 때  
 > **초보자 팁**: 폴더 이름만 맞춰도 Claude Code가 일관되게 코드를 만듭니다.
 
@@ -34,7 +35,7 @@ flowchart TB
 | 공통 DB | Supabase PostgreSQL + Anonymous Auth + Realtime | 교사·학생 앱 단일 진실 공급원 |
 | 로컬 캐시 | localStorage | env 없을 때 프로토타입 유지 · 원격 upsert와 병행 |
 | 동기화 모듈 | `loopin-web/src/lib/sync/*` | 세션·반·과제·Enrollment·진도 |
-| 스키마 | `loopin-web/supabase/migrations/001_loopin_sync.sql` + `002_assignment_delete_policies.sql` | profiles~answers + RLS + `enroll_with_invite_code` (002는 과제 삭제 RLS 정책 추가) |
+| 스키마 | `loopin-web/supabase/migrations/001_haksup_sync.sql` + `002_assignment_delete_policies.sql` | profiles~answers + RLS + `enroll_with_invite_code` (002는 과제 삭제 RLS 정책 추가) |
 | 환경변수 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `.env.local` (예: `.env.example`) |
 
 > **리포지토리 범위**: `loopin-web`(이 리포)은 **교사 앱만** 구현한다. 학생 앱(`/student/*`, 학생용 퀴즈 플로우)은 **별도 리포 `loopin-webapp`** 에서, 같은 Supabase 스키마 규칙을 공유하며 개발된다 (`loopin-web/AGENTS.md` 참조). 아래 2절 폴더 구조는 **제품 전체(1차 웹) 기준 설계**이며, `/login`, `/signup`, `/student/*`, `/api/*`는 이 리포(`loopin-web`)에는 **없다** — 실제로 존재하는 라우트는 `/teacher/*`뿐이다 (현황은 pages.md 1.1 참조).
@@ -184,6 +185,6 @@ sequenceDiagram
 | 환경 | URL | 용도 |
 |------|-----|------|
 | local | localhost:3000 | 개발 |
-| production | loopin.app (예정) | 실서비스 |
+| production | haksup.com (예정) | 실서비스 |
 
 배포: Vercel + Supabase

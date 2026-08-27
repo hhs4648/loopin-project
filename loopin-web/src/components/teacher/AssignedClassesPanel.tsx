@@ -12,14 +12,18 @@ import {
   type ProblemsView,
 } from "@/lib/problem-routes";
 import {
+  GRADE_OPTIONS,
+  MIXED_GRADE_LABEL,
+  isMiddleSchoolGrade,
   type TeacherClass,
   classIdsEqual,
 } from "@/lib/teacher-classes";
 
-const GRADE_KEYS = ["중1", "중2", "중3"] as const;
+const GRADE_KEYS = [...GRADE_OPTIONS, MIXED_GRADE_LABEL] as const;
 type GradeKey = (typeof GRADE_KEYS)[number];
 
-const OPEN_GRADES_STORAGE_KEY = "loopin-sidebar-open-grades";
+const OPEN_GRADES_STORAGE_KEY = "haksup-sidebar-open-grades";
+const LEGACY_MIXED_OPEN_KEYS = ["선택 안 함", "학년 없음"] as const;
 
 type OpenGradesState = Record<GradeKey, boolean>;
 
@@ -28,6 +32,7 @@ const DEFAULT_OPEN_GRADES: OpenGradesState = {
   중1: false,
   중2: false,
   중3: false,
+  [MIXED_GRADE_LABEL]: false,
 };
 
 function loadOpenGrades(): OpenGradesState {
@@ -36,10 +41,14 @@ function loadOpenGrades(): OpenGradesState {
     const raw = window.localStorage.getItem(OPEN_GRADES_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_OPEN_GRADES };
     const parsed = JSON.parse(raw) as Partial<Record<string, boolean>>;
+    const mixedOpen =
+      Boolean(parsed[MIXED_GRADE_LABEL]) ||
+      LEGACY_MIXED_OPEN_KEYS.some((key) => Boolean(parsed[key]));
     return {
       중1: Boolean(parsed.중1),
       중2: Boolean(parsed.중2),
       중3: Boolean(parsed.중3),
+      [MIXED_GRADE_LABEL]: mixedOpen,
     };
   } catch {
     return { ...DEFAULT_OPEN_GRADES };
@@ -62,7 +71,7 @@ type AssignedClassesPanelProps = {
 /**
  * SVG 데모 담당 반을 가리고 동적 목록을 표시.
  * uiux.md: 모든 교사 화면 동일 · 메뉴 글자 bold · 반 클릭 시 항상 홈
- * · 반 없는 학년 숨김 · 학년 토글 열림/닫힘 localStorage 유지
+ * · 반 없는 학년 숨김 · 학년 혼합·미지정 반은 「학년 혼합」 토글 · 열림/닫힘 localStorage 유지
  */
 export function AssignedClassesPanel({
   classes,
@@ -83,6 +92,7 @@ export function AssignedClassesPanel({
       중1: classes.filter((item) => item.grade === "중1"),
       중2: classes.filter((item) => item.grade === "중2"),
       중3: classes.filter((item) => item.grade === "중3"),
+      [MIXED_GRADE_LABEL]: classes.filter((item) => !isMiddleSchoolGrade(item.grade)),
     }),
     [classes]
   );
@@ -123,6 +133,7 @@ export function AssignedClassesPanel({
               key={item.id}
               href={item.href}
               aria-current={active ? "page" : undefined}
+              data-guide={item.id === "submit" ? "problems-submit" : undefined}
               className={`box-border h-10 w-full overflow-hidden ${sidebarNavItemClass(active)}`}
               style={{ WebkitTapHighlightColor: "transparent" }}
             >
@@ -209,9 +220,11 @@ export function AssignedClassesPanel({
         </div>
       ) : null}
 
+      {/* `data-guide`는 시작 가이드가 짚을 자리다 — 좌표가 아니라 실제 위치를 읽는다 */}
       <button
         type="button"
         onClick={onAddClass}
+        data-guide="create-class"
         className="mt-2 flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-[14px] border border-dashed border-[#DBD8D1] text-[13px] font-semibold text-[#15171A] outline-none transition-all duration-150 hover:-translate-y-[1px] hover:border-[#1AA7F2] hover:bg-[#F0F9FE] hover:text-[#1AA7F2] hover:shadow-[0_3px_10px_rgba(26,167,242,0.10)] active:translate-y-0 active:scale-[0.98] focus:outline-none focus-visible:outline-none"
         style={{ WebkitTapHighlightColor: "transparent" }}
       >

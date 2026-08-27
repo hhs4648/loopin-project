@@ -7,7 +7,7 @@ import type {
   WordAnalysis,
 } from "@/lib/ai/sentence-problem-types";
 
-const STORAGE_KEY = "loopin-problem-sets";
+const STORAGE_KEY = "haksup-problem-sets";
 
 export type ProblemSetItems = {
   words: string[];
@@ -191,7 +191,7 @@ export function saveProblemSets(problemSets: SavedProblemSet[]): void {
 export function appendProblemSet(input: CreateProblemSetInput): SavedProblemSet {
   const created = createProblemSet(input);
   saveProblemSets([...loadProblemSets(), created]);
-  window.dispatchEvent(new Event("loopin-problem-sets-changed"));
+  window.dispatchEvent(new Event("haksup-problem-sets-changed"));
   return created;
 }
 
@@ -266,7 +266,7 @@ export function listLibraryProblemSets(
 
 export function persistProblemSets(problemSets: SavedProblemSet[]): void {
   saveProblemSets(problemSets);
-  window.dispatchEvent(new Event("loopin-problem-sets-changed"));
+  window.dispatchEvent(new Event("haksup-problem-sets-changed"));
 }
 
 export function getProblemSetsForClass(

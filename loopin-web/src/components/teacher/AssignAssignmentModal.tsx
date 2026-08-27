@@ -26,9 +26,10 @@ import type { TeacherClass } from "@/lib/teacher-classes";
  * - 「낼 문제」 카테고리·파트·유형 조정 UI는 없음 — 출제 화면에서 고른 값이 그대로 간다.
  * - 반 탭은 **캘린더(수업일)와 마감**만 바꾼다. 반마다 수업 요일이 달라서다.
  *
- * **파트별 따로 부여.** 반 탭 아래는 **월 네비(전체 너비) → 왼쪽 대기열 | 오른쪽 요일격자·마감** 가로 배치.
+ * **파트별 따로 부여.** 페이지는 문제 제출처럼 본문을 채운다.
+ * 반 탭 아래는 **(좌) 파트별 부여 트레이 | (우) 월 네비+요일격자·마감** —
  * 왼쪽 패널은 `part-assign-sidebar.svg` 시안을 **좁게** — 흰 카드·라벨 좌 / `n문항` 우·하단 `부여 n / N파트`·전체 비우기.
- * 패널 상단은 캘린더 **요일(월화수목금토일) 행**과 Y축이 같고, 페이지와 함께 스크롤한다(sticky 없음).
+ * 패널 상단은 캘린더 **월 네비**와 Y축이 같고, 페이지와 함께 스크롤한다(sticky 없음).
  * 캘린더로 옮기면 대기열에서 사라진다.
  * 출제에서 파트를 나눴으면 카드 라벨은 `단어 N파트`, 우측에 `n문항`. **안 나눴으면** `단어` / `문장` / `문법`
  * 카테고리 칩만 있을 때 대기열에서 **전체** 프레임이 단어·문장·문법을 감싸 한날에 같이 올린다.
@@ -145,7 +146,7 @@ const DEFAULT_DEADLINE_DAYS = 3;
 
 const WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
 
-const CHIP_DRAG_TYPE = "application/x-loopin-assign-chip";
+const CHIP_DRAG_TYPE = "application/x-haksup-assign-chip";
 
 /** 안 나눔 모드 — 카테고리 칩을 한꺼번에 올리는 「전체」 번들 */
 const ALL_BUNDLE_KEY = "__all_categories__";
@@ -940,7 +941,7 @@ export function AssignAssignmentModal({
             top: 0,
             width: 1557 - CLASS_LAYOUT.sidebarWidth,
             height: 973,
-            background: "#F3F4F5",
+            background: "#FFFFFF",
           }}
           aria-hidden
         />
@@ -948,16 +949,16 @@ export function AssignAssignmentModal({
         <div
           className={
             variant === "page"
-              ? "pointer-events-auto absolute flex flex-col overflow-y-auto overscroll-contain rounded-[16px] bg-[#FDFDFE] shadow-[0_1px_3px_rgba(15,23,42,0.06)]"
+              ? "pointer-events-auto absolute flex flex-col no-scrollbar overflow-y-auto overflow-x-hidden overscroll-contain"
               : "my-auto w-full max-w-[900px] rounded-[16px] bg-[#FDFDFE] px-10 pt-9 pb-8 shadow-[0_24px_64px_rgba(16,24,40,0.24)]"
           }
           style={
             variant === "page"
               ? {
                   left: CLASS_LAYOUT.contentLeft,
-                  top: 36,
+                  top: 0,
                   width: CLASS_LAYOUT.contentRight - CLASS_LAYOUT.contentLeft,
-                  height: 973 - 52,
+                  height: 973,
                 }
               : undefined
           }
@@ -965,18 +966,30 @@ export function AssignAssignmentModal({
         >
         <div
           className={
-            variant === "page" ? "flex flex-col px-8 pt-7 pb-6" : undefined
+            variant === "page"
+              ? "flex min-h-0 w-full flex-1 flex-col pt-6 pr-2 pb-8"
+              : undefined
           }
         >
         <header className="flex shrink-0 items-start justify-between gap-4">
           <div className="min-w-0">
             <h2
               id={titleId}
-              className="text-[22px] font-bold tracking-[-0.02em] text-[#181B1F]"
+              className={
+                variant === "page"
+                  ? "text-[28px] font-bold leading-tight tracking-[0.04em] text-[#15171A]"
+                  : "text-[22px] font-bold tracking-[0.04em] text-[#181B1F]"
+              }
             >
               과제 부여
             </h2>
-            <p className="mt-2 text-[13px] font-medium text-[#6E7278]">
+            <p
+              className={
+                variant === "page"
+                  ? "mt-2.5 text-[14px] leading-relaxed tracking-[0.02em] text-[#9CA3AF]"
+                  : "mt-2 text-[13px] font-medium text-[#6E7278]"
+              }
+            >
               낼 문제를 확인하고 반마다 수업일과 마감을 정해 주세요.
             </p>
           </div>
@@ -993,7 +1006,7 @@ export function AssignAssignmentModal({
           </button>
         </header>
 
-        <div className="mt-5 h-px bg-[#DCDEE1]" />
+        {variant === "page" ? null : <div className="mt-5 h-px bg-[#DCDEE1]" />}
 
         {/* 반 탭 — 캘린더·마감만 바뀐다 */}
         <div
@@ -1035,48 +1048,22 @@ export function AssignAssignmentModal({
           ) : null}
         </div>
 
-        {/* 월 네비(전체 너비) → 파트 칩 | 요일격자·마감·제출 — 패널 상단 = 요일 행 Y */}
+        {/* (페이지) 좌 파트 트레이 | 우 캘린더 — 월 네비는 캘린더 컬럼 안 */}
         <div
           className={
-            variant === "page" ? "mt-5 flex flex-col" : "mt-8 flex flex-col"
+            variant === "page"
+              ? "mt-5 flex min-h-0 flex-1 items-start gap-4"
+              : "mt-8 flex items-start gap-3"
           }
         >
-          <div className="flex shrink-0 flex-col items-center">
-            <div className="flex items-center gap-6">
-              <button
-                type="button"
-                onClick={() => shiftMonth(-1)}
-                aria-label="이전 달"
-                className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-full border border-[#E4E5E8] bg-[#FDFDFE] text-[#9A958E] hover:bg-[#F5F7F9]"
-              >
-                <ChevronIcon direction="left" />
-              </button>
-              <h3 className="text-[17px] font-bold text-[#181B1F]">
-                {month.year}년 {month.month + 1}월
-              </h3>
-              <button
-                type="button"
-                onClick={() => shiftMonth(1)}
-                aria-label="다음 달"
-                className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-full border border-[#E4E5E8] bg-[#FDFDFE] text-[#9A958E] hover:bg-[#F5F7F9]"
-              >
-                <ChevronIcon direction="right" />
-              </button>
-            </div>
-            <p className="mt-2 text-[12.5px] font-medium text-[#777A80]">
-              {selectedKeys.length > 0
-                ? `옮길 날짜를 누르세요 — ${movingHintLabel}`
-                : activeClass
-                  ? `과제를 눌러 ${activeClass.name}의 수업일을 선택하세요`
-                  : "과제를 눌러 해당 반의 수업일을 선택하세요"}
-            </p>
-          </div>
-
-          <div className="mt-4 flex items-start gap-3">
           {chips.length > 0 ? (
-            <aside className="w-[210px] shrink-0 self-start">
+            <aside
+              className={`shrink-0 self-start ${
+                variant === "page" ? "w-[252px]" : "w-[210px]"
+              }`}
+            >
               <section className="flex flex-col rounded-[16px] border border-[#ECEEF3] bg-[#F7F8FB] px-2.5 pb-2.5 pt-3 shadow-[0_1px_2px_rgba(20,22,26,0.03)]">
-                <h3 className="text-[13px] font-bold tracking-[-0.02em] text-[#14161A]">
+                <h3 className="text-[13px] font-bold tracking-[0.02em] text-[#14161A]">
                   파트별 부여
                   {activeClass ? ` · ${activeClass.name}` : ""}
                 </h3>
@@ -1221,6 +1208,40 @@ export function AssignAssignmentModal({
 
           {/* 캘린더·마감·제출 — 반마다 다르다 · 남은 너비 · 페이지와 함께 스크롤 */}
           <div className="flex min-w-0 flex-1 flex-col">
+            <div
+              className={`mb-4 flex shrink-0 flex-col ${
+                variant === "page" ? "items-start" : "items-center"
+              }`}
+            >
+              <div className="flex items-center gap-6">
+                <button
+                  type="button"
+                  onClick={() => shiftMonth(-1)}
+                  aria-label="이전 달"
+                  className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-full border border-[#E4E5E8] bg-[#FDFDFE] text-[#9A958E] hover:bg-[#F5F7F9]"
+                >
+                  <ChevronIcon direction="left" />
+                </button>
+                <h3 className="text-[17px] font-bold text-[#181B1F]">
+                  {month.year}년 {month.month + 1}월
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => shiftMonth(1)}
+                  aria-label="다음 달"
+                  className="grid h-[30px] w-[30px] cursor-pointer place-items-center rounded-full border border-[#E4E5E8] bg-[#FDFDFE] text-[#9A958E] hover:bg-[#F5F7F9]"
+                >
+                  <ChevronIcon direction="right" />
+                </button>
+              </div>
+              <p className="mt-2 text-[12.5px] font-medium text-[#777A80]">
+                {selectedKeys.length > 0
+                  ? `옮길 날짜를 누르세요 — ${movingHintLabel}`
+                  : activeClass
+                    ? `과제를 눌러 ${activeClass.name}의 수업일을 선택하세요`
+                    : "과제를 눌러 해당 반의 수업일을 선택하세요"}
+              </p>
+            </div>
             <div className="overflow-hidden rounded-[14px] border border-[#E0E1E4]">
               <div className="sticky top-0 z-[1] grid grid-cols-7 bg-[#F5F7F9]">
                 {WEEKDAY_LABELS.map((label, index) => (
@@ -1474,7 +1495,6 @@ export function AssignAssignmentModal({
               </div>
             </div>
           </div>
-        </div>
         </div>
         </div>
       </div>

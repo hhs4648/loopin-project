@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { figmaRectStyle } from "./figma-rect";
+import { useShrinkToFit } from "./use-shrink-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   COLOR_CORRECT_BG,
@@ -99,6 +100,11 @@ export function BodyTextBPreview({ question }: { question: BodyTextBQuestion }) 
     setResult("playing");
   };
 
+  /* 지문을 자르지 않고 글씨를 줄여 전부 보이게 한다 (본문 A와 같은 이유) */
+  const passageBoxRef = useRef<HTMLDivElement>(null);
+  const passageTextRef = useRef<HTMLParagraphElement>(null);
+  useShrinkToFit(passageBoxRef, passageTextRef, [question.promptKo]);
+
   return (
     <PreviewFrame src={ASSET} alt="본문 B">
       <div className={`absolute inset-0 ${showFeedback ? "pointer-events-none" : ""}`}>
@@ -109,8 +115,14 @@ export function BodyTextBPreview({ question }: { question: BodyTextBQuestion }) 
           style={figmaRectStyle(SPEAKER_MASK)}
         />
         <div aria-hidden className="pointer-events-none absolute bg-white" style={figmaRectStyle(PASSAGE)} />
-        <div className="pointer-events-none absolute flex items-center px-5" style={figmaRectStyle(PASSAGE)}>
-          <p className={`line-clamp-2 ${EXERCISE_PASSAGE_KO_CLASS}`}>{question.promptKo}</p>
+        <div
+          ref={passageBoxRef}
+          className="pointer-events-none absolute flex items-center overflow-hidden px-5 py-1"
+          style={figmaRectStyle(PASSAGE)}
+        >
+          <p ref={passageTextRef} className={EXERCISE_PASSAGE_KO_CLASS}>
+            {question.promptKo}
+          </p>
         </div>
 
         <div aria-hidden className="pointer-events-none absolute bg-[#F6F9FD]" style={figmaRectStyle(SENTENCE_BOX)} />

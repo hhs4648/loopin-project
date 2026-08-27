@@ -12,7 +12,7 @@ type AlertBadgeIconProps = {
 
 /**
  * 삭제·경고 모달용 알림 아이콘.
- * 삼각형 경고 대신 원형 + 느낌표 (루핀 톤).
+ * 삼각형 경고 대신 원형 + 느낌표 (학습 톤).
  */
 export function AlertBadgeIcon({
   size = 44,
