@@ -18,9 +18,19 @@ import {
   publishCustomAssign,
   publishProblemsAssign,
 } from "@/lib/assign-publish";
+import { contentsFromCustomProblemSet } from "@/lib/custom-assign-contents";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
+import { assignedClassHomeHref } from "@/lib/class-tabs";
 import { loadProblemSets } from "@/lib/problem-sets";
 import { loadTeacherClasses } from "@/lib/teacher-classes";
+
+function afterAssignHref(draft: AssignDraft): string {
+  return (
+    assignedClassHomeHref(draft.classIds, draft.assignUi?.activeClassId) ??
+    draft.returnHref ??
+    "/teacher/problems"
+  );
+}
 
 /**
  * 초안 hydrate 전에도 깔아 둔다.
@@ -112,7 +122,7 @@ export function AssignAssignmentPanel() {
           return;
         }
         clearAssignDraft();
-        router.push(draft.returnHref || "/teacher/problems");
+        router.push(afterAssignHref(draft));
         return;
       }
 
@@ -125,10 +135,9 @@ export function AssignAssignmentPanel() {
           setError("문제 세트를 찾지 못했어요.");
           return;
         }
-        const assignments = result.groups[0]?.assignments ?? [];
         const publish = await publishCustomAssign({
           problemSet,
-          assignments,
+          result,
         });
         setBusy(false);
         if (!publish.ok) {
@@ -136,7 +145,7 @@ export function AssignAssignmentPanel() {
           return;
         }
         clearAssignDraft();
-        router.push(draft.returnHref || "/teacher/problems/saved");
+        router.push(afterAssignHref(draft));
         return;
       }
 
@@ -150,6 +159,17 @@ export function AssignAssignmentPanel() {
   const classes = loadTeacherClasses().filter((item) =>
     draft.classIds.some((id) => id === item.id),
   );
+  const customProblemSet =
+    draft.source === "custom" && draft.problemSetId
+      ? (loadProblemSets().find((item) => item.id === draft.problemSetId) ??
+        null)
+      : null;
+  const contents =
+    draft.contents && draft.contents.length > 0
+      ? draft.contents
+      : customProblemSet
+        ? contentsFromCustomProblemSet(customProblemSet)
+        : draft.contents;
 
   return (
     <>
@@ -159,7 +179,7 @@ export function AssignAssignmentPanel() {
         busy={busy}
         classes={classes.length > 0 ? classes : loadTeacherClasses()}
         classIds={draft.classIds}
-        contents={draft.contents}
+        contents={contents}
         initialAssignUi={draft.assignUi}
         onAssignUiChange={handleAssignUiChange}
         onClose={goBack}

@@ -21,6 +21,7 @@ import {
   type WordAnalysis,
 } from "@/lib/ai/sentence-problem-types";
 import { saveAssignDraft } from "@/lib/assign-draft";
+import { contentsFromCustomProblemSet } from "@/lib/custom-assign-contents";
 import {
   appendProblemSet,
   loadProblemSets,
@@ -798,6 +799,7 @@ export function CustomAssignmentCreateModal({
       problemSetId,
       classIds: [...selectedClassIds],
       returnHref: "/teacher/problems/saved",
+      contents: contentsFromCustomProblemSet(input),
     });
     resetAll();
     onClose();
@@ -809,14 +811,13 @@ export function CustomAssignmentCreateModal({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 p-4"
-      onClick={handleClose}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex h-[min(900px,94vh)] w-[min(1100px,98vw)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex h-[min(900px,94%)] w-[min(1100px,98%)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#F0F1F3] px-6 py-4">

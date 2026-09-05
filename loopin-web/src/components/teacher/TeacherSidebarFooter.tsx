@@ -104,7 +104,6 @@ export function TeacherSidebarFooter({
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-6"
           role="presentation"
-          onClick={() => setComingSoonOpen(false)}
         >
           <div
             role="dialog"

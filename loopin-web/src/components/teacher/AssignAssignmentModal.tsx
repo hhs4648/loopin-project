@@ -7,13 +7,20 @@ import {
   isCalendarRedDay,
   loadAcademicSchedule,
 } from "@/lib/calendar-academic-schedule";
-import { getNextClassOccurrence } from "@/lib/calendar-layout";
+import {
+  getNextClassOccurrence,
+  hhmmToMinutes,
+} from "@/lib/calendar-layout";
 import {
   loadOneOffLessons,
   toLocalIsoDate,
 } from "@/lib/calendar-one-off-lessons";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 import type { CreateClassAssignmentInput } from "@/lib/class-assignments";
+import {
+  formatOpenAtKo,
+  resolveAssignmentOpenAt,
+} from "@/lib/assignment-open-at";
 import { listLessonCandidates } from "@/lib/lesson-candidates";
 import type { TeacherClass } from "@/lib/teacher-classes";
 
@@ -38,7 +45,7 @@ import type { TeacherClass } from "@/lib/teacher-classes";
  * 날짜만 누르면 **전부** 그 날로 모인다. **올린 칩을 클릭**하면 다시 대기열로 돌아온다.
  *
  * 저장할 때는 **같은 날짜 조합에 놓인 칩끼리 묶어** 과제 하나가 된다.
- * 마감은 **반마다 일괄** — 같은 규칙(N일 / 다음 수업 전까지)을 그 반의 모든 수업일 그룹에 적용한다.
+ * 마감은 **반마다 일괄** — 같은 규칙(N일+시각 / 다음 수업 전까지)을 그 반의 모든 수업일 그룹에 적용한다.
  * 칩을 캘린더에 올리지 않으면 제출할 수 없다.
  */
 
@@ -93,6 +100,14 @@ type MissingPlacementGroup = {
   labels: string[];
 };
 
+/** 오늘보다 늦은 수업일 — 학생 앱 공개 안내 */
+type ScheduledDelivery = {
+  className: string;
+  lessonDate: string;
+  /** "9월 2일 17:30" */
+  whenLabel: string;
+};
+
 export type AssignResult = {
   /** 과제 단위. 같은 날짜 조합에 놓인 칩 묶음마다 1개 */
   groups: AssignGroup[];
@@ -112,6 +127,8 @@ type ClassSchedule = {
   lessonDate: string;
   /** 수업일로부터 며칠 뒤가 마감인지 (직접 설정 · 모든 그룹에 동일 N) */
   deadlineDays: number;
+  /** HH:MM · 직접 설정 마감 시각 (모든 그룹에 동일). 다음 수업 폴백에도 씀 */
+  deadlineTime: string;
   /** 직접 설정 | 다음 수업 전까지 — 반 전체 일괄 */
   deadlineMode: DeadlineMode;
 };
@@ -121,9 +138,9 @@ type AssignAssignmentModalProps = {
   classes: TeacherClass[];
   classIds: string[];
   /**
-   * 이번에 낼 문제 내역. 넘기면 「낼 문제」 카드가 뜨고 파트·유형을 조정하거나
-   * 파트별로 다른 날에 놓을 수 있다.
-   * 넘기지 않으면(문장 기반 자동 생성 등) 수업일·마감만 묻는다.
+   * 이번에 낼 문제 내역. 넘기면 왼쪽 트레이에 파트/카테고리 칩이 생기고
+   * 캘린더로 옮길 수 있다.
+   * 넘기지 않으면 수업일·마감만 묻는다.
    */
   contents?: AssignContentRow[];
   /** 이전에 배치해 둔 칩·마감 — 뒤로 갔다가 다시 열 때 복원 */
@@ -138,8 +155,56 @@ type AssignAssignmentModalProps = {
   busy?: boolean;
 };
 
-/** 시안에 마감 시간 입력이 없다 — 마감 칩도 `마감 23:59` 고정 */
+/** 직접 설정 마감 시각 기본값 */
 const DEADLINE_TIME = "23:59";
+
+const DEADLINE_TIME_RE = /^(\d{1,2}):(\d{2})(?::\d{2})?$/;
+
+/** `HH:MM`로 정규화. 비었거나 형식이 아니면 23:59 */
+function normalizeDeadlineTime(raw: string | undefined): string {
+  const match = DEADLINE_TIME_RE.exec((raw ?? "").trim());
+  if (!match) return DEADLINE_TIME;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return DEADLINE_TIME;
+  }
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+type ResolvedDeadline = {
+  deadlineDate: string;
+  deadlineTime: string;
+  deadlineUntilNextLesson?: boolean;
+};
+
+function formatHhmm(totalMin: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, totalMin));
+  const hours = Math.floor(clamped / 60);
+  const minutes = clamped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/** 수업 시작 시각에서 1분을 뺀다. 00:00이면 전날 23:59 */
+function oneMinuteBeforeClass(
+  classDate: Date,
+  startHhmm: string,
+): { date: Date; time: string } {
+  const startMin = hhmmToMinutes(startHhmm);
+  if (!Number.isFinite(startMin) || startMin <= 0) {
+    const prev = new Date(classDate);
+    prev.setDate(prev.getDate() - 1);
+    return { date: prev, time: DEADLINE_TIME };
+  }
+  return { date: classDate, time: formatHhmm(startMin - 1) };
+}
 
 const DEADLINE_PRESETS = [1, 3, 7, 14];
 const DEFAULT_DEADLINE_DAYS = 3;
@@ -166,6 +231,7 @@ function defaultSchedule(): ClassSchedule {
   return {
     lessonDate: toLocalIsoDate(new Date()),
     deadlineDays: DEFAULT_DEADLINE_DAYS,
+    deadlineTime: DEADLINE_TIME,
     deadlineMode: "manual",
   };
 }
@@ -191,6 +257,9 @@ function schedulesFromUi(
         typeof saved.deadlineDays === "number"
           ? saved.deadlineDays
           : base[classId].deadlineDays,
+      deadlineTime: normalizeDeadlineTime(
+        saved.deadlineTime ?? base[classId].deadlineTime,
+      ),
       deadlineMode:
         saved.deadlineMode === "until_next_class" ||
         saved.deadlineMode === "manual"
@@ -228,11 +297,11 @@ function monthFromUi(ui?: AssignDraftUi): { year: number; month: number } {
   return { year: now.getFullYear(), month: now.getMonth() };
 }
 
-/** 수업일 다음 정규/일회 수업의 전날까지 며칠인지. 없으면 null */
-function deadlineDaysUntilNextClass(
+/** 수업일 다음 정규/일회 수업의 시작 1분 전. 없으면 null */
+function deadlineUntilNextClass(
   teacherClass: TeacherClass,
   lessonIso: string,
-): number | null {
+): ResolvedDeadline | null {
   const lessonDate = parseIso(lessonIso);
   const from = new Date(
     lessonDate.getFullYear(),
@@ -250,30 +319,28 @@ function deadlineDaysUntilNextClass(
     loadAcademicSchedule(),
   );
   if (!next) return null;
-  const nextDay = new Date(
-    next.date.getFullYear(),
-    next.date.getMonth(),
-    next.date.getDate(),
-  );
-  const deadlineDay = new Date(nextDay);
-  deadlineDay.setDate(deadlineDay.getDate() - 1);
-  const ms = deadlineDay.getTime() - lessonDate.getTime();
-  return Math.max(0, Math.round(ms / 86_400_000));
+  const { date, time } = oneMinuteBeforeClass(next.date, next.start);
+  return {
+    deadlineDate: toLocalIsoDate(date),
+    deadlineTime: time,
+    deadlineUntilNextLesson: true,
+  };
 }
 
 /** 반 일괄 규칙을 그 그룹의 수업일에 적용 */
-function resolveDeadlineDays(
+function resolveDeadline(
   teacherClass: TeacherClass | undefined,
-  schedule: Pick<ClassSchedule, "deadlineDays" | "deadlineMode">,
+  schedule: Pick<ClassSchedule, "deadlineDays" | "deadlineMode" | "deadlineTime">,
   lessonIso: string,
-): number {
-  if (!teacherClass || schedule.deadlineMode !== "until_next_class") {
-    return schedule.deadlineDays;
+): ResolvedDeadline {
+  if (teacherClass && schedule.deadlineMode === "until_next_class") {
+    const untilNext = deadlineUntilNextClass(teacherClass, lessonIso);
+    if (untilNext) return untilNext;
   }
-  return (
-    deadlineDaysUntilNextClass(teacherClass, lessonIso) ??
-    schedule.deadlineDays
-  );
+  return {
+    deadlineDate: isoDaysFrom(lessonIso, schedule.deadlineDays),
+    deadlineTime: normalizeDeadlineTime(schedule.deadlineTime),
+  };
 }
 
 function initPartSel(rows: AssignContentRow[]): Record<string, number[]> {
@@ -362,6 +429,10 @@ export function AssignAssignmentModal({
     MissingPlacementGroup[] | null
   >(null);
   const missingAlertTitleId = useId();
+  const [scheduledNotice, setScheduledNotice] = useState<
+    ScheduledDelivery[] | null
+  >(null);
+  const scheduledAlertTitleId = useId();
   /** 마운트 직후 빈 UI를 초안에 써 덮어쓰지 않도록 한 틱 건너뛴다 */
   /**
    * 초안에 마지막으로 쓴 리셋 키.
@@ -407,6 +478,7 @@ export function AssignAssignmentModal({
     setMonth(monthFromUi(initialAssignUi));
     setError("");
     setMissingPlacement(null);
+    setScheduledNotice(null);
   }
 
   /** ref는 렌더 중 쓰면 안 됨 — 리셋 키 바뀌면 effect에서 비운다 */
@@ -578,6 +650,10 @@ export function AssignAssignmentModal({
         setMissingPlacement(null);
         return;
       }
+      if (scheduledNotice) {
+        setScheduledNotice(null);
+        return;
+      }
       if (selectedKeys.length > 0) {
         setSelectedKeys([]);
         selectionAnchorRef.current = null;
@@ -586,7 +662,7 @@ export function AssignAssignmentModal({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, selectedKeys.length, missingPlacement]);
+  }, [open, onClose, selectedKeys.length, missingPlacement, scheduledNotice]);
 
   if (!open) return null;
 
@@ -764,7 +840,7 @@ export function AssignAssignmentModal({
   /**
    * 같은 **날짜 조합**(모든 반에서 같은 날)에 놓인 칩끼리 묶는다.
    * 반마다 날짜가 갈리는 칩은 자연히 다른 묶음이 된다.
-   * 마감은 **그 반의 일괄 규칙**(deadlineMode · deadlineDays)을 각 그룹 수업일에 적용한다.
+   * 마감은 **그 반의 일괄 규칙**(deadlineMode · deadlineDays · deadlineTime)을 각 그룹 수업일에 적용한다.
    * 아직 캘린더에 안 올린 칩은 묶음에서 빼고, 하나도 없으면 기준 수업일로 마감만 미리본다.
    */
   const buildGroups = (): AssignGroup[] => {
@@ -772,14 +848,15 @@ export function AssignAssignmentModal({
       selectedClasses.map((teacherClass) => {
         const lessonDate = dateOf(teacherClass.id);
         const sched = scheduleOf(teacherClass.id);
-        const days = resolveDeadlineDays(teacherClass, sched, lessonDate);
+        const deadline = resolveDeadline(teacherClass, sched, lessonDate);
         return {
           // problemSetId는 저장 직전에 호출부가 채운다
           problemSetId: "",
           classId: teacherClass.id,
           lessonDate,
-          deadlineDate: isoDaysFrom(lessonDate, days),
-          deadlineTime: DEADLINE_TIME,
+          deadlineDate: deadline.deadlineDate,
+          deadlineTime: deadline.deadlineTime,
+          deadlineUntilNextLesson: deadline.deadlineUntilNextLesson,
         } satisfies CreateClassAssignmentInput;
       });
 
@@ -841,11 +918,13 @@ export function AssignAssignmentModal({
   const submit = () => {
     if (selectedClasses.length === 0) {
       setMissingPlacement(null);
+      setScheduledNotice(null);
       setError("받는 반을 먼저 선택해 주세요.");
       return;
     }
     if (rows.length > 0 && activeRows.length === 0) {
       setMissingPlacement(null);
+      setScheduledNotice(null);
       setError("이번에 낼 문제를 하나 이상 남겨 주세요.");
       return;
     }
@@ -857,6 +936,7 @@ export function AssignAssignmentModal({
         row.count <= 0
       ) {
         setMissingPlacement(null);
+        setScheduledNotice(null);
         setError(`${row.label}에서 낼 파트를 하나 이상 골라 주세요.`);
         return;
       }
@@ -876,12 +956,36 @@ export function AssignAssignmentModal({
       }
       if (groups.length > 0) {
         setError("");
+        setScheduledNotice(null);
         setMissingPlacement(groups);
         return;
       }
     }
     setError("");
     setMissingPlacement(null);
+    const future = scheduledDeliveriesFromGroups(
+      groups,
+      selectedClasses,
+      todayIso,
+    );
+    if (future.length > 0) {
+      setScheduledNotice(future);
+      return;
+    }
+    setScheduledNotice(null);
+    onConfirm({
+      groups,
+      types: Object.fromEntries(
+        rows
+          .filter((row) => (row.types?.length ?? 0) > 0 && !isExcluded(row))
+          .map((row) => [row.key, typeSel[row.key] ?? []]),
+      ),
+      excludedKeys: rows.filter(isExcluded).map((row) => row.key),
+    });
+  };
+
+  const confirmScheduledSubmit = () => {
+    setScheduledNotice(null);
     onConfirm({
       groups,
       types: Object.fromEntries(
@@ -931,7 +1035,6 @@ export function AssignAssignmentModal({
       aria-modal={variant === "modal" ? true : undefined}
       aria-labelledby={titleId}
       aria-label={variant === "page" ? "과제 부여" : undefined}
-      onClick={variant === "modal" && !busy ? onClose : undefined}
     >
       {variant === "page" ? (
         <div
@@ -1269,21 +1372,14 @@ export function AssignAssignmentModal({
                   const red =
                     date.getDay() === 0 || isCalendarRedDay(date, holidays);
                   const lessons = lessonsByDate.get(iso) ?? [];
-                  // 이 날 나가는 과제의 마감 — 칩 수업일 + 반 일괄 마감 규칙
-                  const isDeadline =
-                    !selected &&
-                    activeClass != null &&
-                    [...chipsByDate.keys()].some(
-                      (lessonIso) =>
-                        isoDaysFrom(
-                          lessonIso,
-                          resolveDeadlineDays(
-                            activeClass,
-                            schedule,
-                            lessonIso,
-                          ),
-                        ) === iso,
-                    );
+                  const deadlineForDay =
+                    !selected && activeClass != null
+                      ? [...chipsByDate.keys()]
+                          .map((lessonIso) =>
+                            resolveDeadline(activeClass, schedule, lessonIso),
+                          )
+                          .find((item) => item.deadlineDate === iso)
+                      : undefined;
 
                   return (
                     <div
@@ -1403,9 +1499,9 @@ export function AssignAssignmentModal({
                           </span>
                         ))}
 
-                        {isDeadline ? (
+                        {deadlineForDay ? (
                           <span className="truncate rounded-[8px] bg-[#FFF1F3] px-1.5 py-0.5 text-[11px] font-bold text-[#DE3B5A]">
-                            마감 {DEADLINE_TIME}
+                            마감 {deadlineForDay.deadlineTime}
                           </span>
                         ) : null}
                       </button>
@@ -1434,6 +1530,7 @@ export function AssignAssignmentModal({
                   className={activeClass?.name ?? ""}
                   lessonDates={[schedule.lessonDate]}
                   deadlineDays={schedule.deadlineDays}
+                  deadlineTime={schedule.deadlineTime}
                   deadlineMode={schedule.deadlineMode}
                   teacherClass={activeClass}
                   showLessonDatePicker
@@ -1458,6 +1555,7 @@ export function AssignAssignmentModal({
                   className={activeClass?.name ?? ""}
                   lessonDates={activeDateGroups.map((group) => group.lessonDate)}
                   deadlineDays={schedule.deadlineDays}
+                  deadlineTime={schedule.deadlineTime}
                   deadlineMode={schedule.deadlineMode}
                   teacherClass={activeClass}
                   disabled={!activeClass}
@@ -1503,7 +1601,6 @@ export function AssignAssignmentModal({
         <div
           className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-4"
           role="presentation"
-          onClick={() => setMissingPlacement(null)}
         >
           <div
             role="dialog"
@@ -1564,6 +1661,70 @@ export function AssignAssignmentModal({
           </div>
         </div>
       ) : null}
+
+      {scheduledNotice ? (
+        <div
+          className="pointer-events-auto fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-4"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={scheduledAlertTitleId}
+            className="relative w-full max-w-[400px] overflow-hidden rounded-2xl bg-white shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 px-7 pt-6 pb-1">
+              <h2
+                id={scheduledAlertTitleId}
+                className="text-[18px] font-bold tracking-tight text-[#15171A]"
+              >
+                학생 앱에는 해당 날짜가 지난 뒤에 과제가 뜹니다
+              </h2>
+              <button
+                type="button"
+                onClick={() => setScheduledNotice(null)}
+                aria-label="닫기"
+                className="-mt-1 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#45484D] hover:bg-[#F3F4F5]"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="max-h-[min(360px,50vh)] overflow-y-auto px-7 pb-2 pt-2">
+              <p className="text-[13px] font-medium leading-relaxed text-[#6E7278]">
+                과제 부여일이 오늘보다 늦은 과제예요. 그날 수업이 끝나면
+                자동으로 출제됩니다.
+              </p>
+              <ul className="mt-4 space-y-1.5">
+                {scheduledNotice.map((item) => (
+                  <li
+                    key={`${item.className}:${item.lessonDate}`}
+                    className="text-[14px] font-semibold text-[#181B1F]"
+                  >
+                    {item.className} · {item.whenLabel}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex justify-end gap-2 px-7 py-5">
+              <button
+                type="button"
+                onClick={() => setScheduledNotice(null)}
+                className="h-10 cursor-pointer rounded-[10px] border border-[#CCCED0] bg-white px-4 text-[14px] font-bold text-[#45484D] hover:bg-[#F9FAFB]"
+              >
+                닫기
+              </button>
+              <button
+                type="button"
+                onClick={confirmScheduledSubmit}
+                className="h-10 cursor-pointer rounded-[10px] bg-[#2F80ED] px-5 text-[14px] font-bold text-white hover:bg-[#1B6FD8]"
+              >
+                그대로 제출하기
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1573,11 +1734,50 @@ function formatKoDate(isoDate: string): string {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
+/** 오늘보다 늦은 수업일만 — 그날 수업이 끝나야 학생 앱에 보인다 */
+function scheduledDeliveriesFromGroups(
+  groups: AssignGroup[],
+  classes: TeacherClass[],
+  todayIso: string,
+): ScheduledDelivery[] {
+  const byId = new Map(classes.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const out: ScheduledDelivery[] = [];
+  for (const group of groups) {
+    for (const assignment of group.assignments) {
+      if (assignment.lessonDate <= todayIso) continue;
+      const key = `${assignment.classId}|${assignment.lessonDate}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const teacherClass = byId.get(assignment.classId);
+      const openAt = resolveAssignmentOpenAt(
+        teacherClass,
+        assignment.lessonDate,
+      );
+      const openLabel = formatOpenAtKo(openAt);
+      out.push({
+        className: teacherClass?.name ?? assignment.classId,
+        lessonDate: assignment.lessonDate,
+        whenLabel: openLabel
+          ? openLabel.replace(/\s*공개$/, "")
+          : formatKoDate(assignment.lessonDate),
+      });
+    }
+  }
+  out.sort(
+    (a, b) =>
+      a.lessonDate.localeCompare(b.lessonDate) ||
+      a.className.localeCompare(b.className, "ko"),
+  );
+  return out;
+}
+
 /** 활성 반 일괄 마감 — 토글 · N일/다음 수업 · 수업일별 요약 */
 function DeadlineBulkCard({
   className,
   lessonDates,
   deadlineDays,
+  deadlineTime,
   deadlineMode,
   teacherClass,
   showLessonDatePicker = false,
@@ -1589,25 +1789,29 @@ function DeadlineBulkCard({
   /** 요약·다음 수업 계산에 쓰는 수업일(들). 직접 설정 피커가 있으면 보통 1개 */
   lessonDates: string[];
   deadlineDays: number;
+  deadlineTime: string;
   deadlineMode: DeadlineMode;
   teacherClass: TeacherClass | null;
   showLessonDatePicker?: boolean;
   disabled: boolean;
   onPatch: (
-    next: Partial<Pick<ClassSchedule, "deadlineDays" | "deadlineMode">>,
+    next: Partial<
+      Pick<ClassSchedule, "deadlineDays" | "deadlineMode" | "deadlineTime">
+    >,
   ) => void;
   onLessonDateChange?: (iso: string) => void;
 }) {
   const primaryLesson = lessonDates[0] ?? toLocalIsoDate(new Date());
   const summaries = lessonDates.map((lessonDate) => {
-    const days = resolveDeadlineDays(
+    const deadline = resolveDeadline(
       teacherClass ?? undefined,
-      { deadlineDays, deadlineMode },
+      { deadlineDays, deadlineMode, deadlineTime },
       lessonDate,
     );
     return {
       lessonDate,
-      deadlineIso: isoDaysFrom(lessonDate, days),
+      deadlineIso: deadline.deadlineDate,
+      deadlineTime: deadline.deadlineTime,
     };
   });
 
@@ -1705,6 +1909,17 @@ function DeadlineBulkCard({
                 </span>
               </span>
             </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12px] font-semibold text-[#9A9DA3]">
+                마감 시간
+              </span>
+              <DeadlineTimeField
+                className={className}
+                value={deadlineTime}
+                disabled={disabled}
+                onChange={(next) => onPatch({ deadlineTime: next })}
+              />
+            </label>
           </div>
 
           <div className="mt-3 flex gap-2">
@@ -1732,16 +1947,16 @@ function DeadlineBulkCard({
       ) : (
         <div className="mt-4 rounded-[10px] border border-[#E4E5E8] bg-white px-4 py-3.5">
           <p className="text-[13px] font-semibold text-[#181B1F]">
-            각 수업일 다음 수업 전날 23:59에 마감돼요.
+            다음 수업 시작 1분 전에 마감돼요.
           </p>
           <p className="mt-1 text-[12px] font-medium text-[#6E7278]">
-            다음에 잡힌 수업이 없으면 직접 설정의 일수를 써요.
+            다음에 잡힌 수업이 없으면 직접 설정의 일수·시각을 써요.
           </p>
         </div>
       )}
 
       <div className="mt-3.5 flex flex-col gap-1">
-        {summaries.map(({ lessonDate, deadlineIso }) => (
+        {summaries.map(({ lessonDate, deadlineIso, deadlineTime }) => (
           <p
             key={lessonDate}
             className="text-[12px] font-medium text-[#45484D]"
@@ -1749,12 +1964,74 @@ function DeadlineBulkCard({
             <b className="font-bold text-[#1F2227]">{formatKoDate(lessonDate)}</b>
             <span className="text-[#9A9DA3]"> 수업 · </span>
             <span className="text-[#DE3B5A]">
-              마감 {formatKoDate(deadlineIso)} {DEADLINE_TIME}
+              마감 {formatKoDate(deadlineIso)} {deadlineTime}
             </span>
           </p>
         ))}
       </div>
     </div>
+  );
+}
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) =>
+  String(hour).padStart(2, "0"),
+);
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) =>
+  String(minute).padStart(2, "0"),
+);
+
+/** 직접 설정 마감 시각 — 24시간 HH:MM. 브라우저 locale의 AM/PM을 쓰지 않는다 */
+function DeadlineTimeField({
+  className,
+  value,
+  disabled,
+  onChange,
+}: {
+  className: string;
+  value: string;
+  disabled: boolean;
+  onChange: (next: string) => void;
+}) {
+  const time = normalizeDeadlineTime(value);
+  const [hours, minutes] = time.split(":");
+  const selectClass =
+    "h-full cursor-pointer appearance-none bg-transparent text-center text-[12.5px] font-bold text-[#1F2227] outline-none disabled:cursor-not-allowed disabled:opacity-50";
+  return (
+    <span className="flex h-[45px] w-[148px] items-center rounded-[9px] border border-[#D3D4D7] bg-[#FDFDFE] px-3 focus-within:border-[#229FFF]">
+      <select
+        value={hours}
+        disabled={disabled}
+        aria-label={`${className} 마감 시`}
+        onChange={(event) =>
+          onChange(`${event.target.value}:${minutes ?? "59"}`)
+        }
+        className={`${selectClass} w-[2.2em]`}
+      >
+        {HOUR_OPTIONS.map((hour) => (
+          <option key={hour} value={hour}>
+            {hour}
+          </option>
+        ))}
+      </select>
+      <span className="px-0.5 text-[13px] font-bold text-[#6E7278]" aria-hidden>
+        :
+      </span>
+      <select
+        value={minutes}
+        disabled={disabled}
+        aria-label={`${className} 마감 분`}
+        onChange={(event) =>
+          onChange(`${hours ?? "23"}:${event.target.value}`)
+        }
+        className={`${selectClass} w-[2.2em]`}
+      >
+        {MINUTE_OPTIONS.map((minute) => (
+          <option key={minute} value={minute}>
+            {minute}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 }
 

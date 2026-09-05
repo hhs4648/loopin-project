@@ -124,14 +124,13 @@ export function PreviewModal({
   return (
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 p-4"
-      onClick={onClose}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex w-fit max-h-[97vh] max-w-[min(1400px,98vw)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex w-fit max-h-[97%] max-w-[min(1400px,98%)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#F0F1F3] px-5 py-2.5">

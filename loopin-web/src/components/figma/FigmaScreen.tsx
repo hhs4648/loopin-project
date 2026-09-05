@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FitToViewport } from "@/components/figma/FitToViewport";
 import { readAssetFile } from "@/lib/assets";
 import type { FigmaHotspot } from "./types";
 
@@ -25,7 +26,8 @@ export function FigmaScreen({
   const svg = readAssetFile(file);
 
   return (
-    <main className="flex min-h-screen items-center justify-center overflow-auto bg-white">
+    <main className="flex min-h-screen overflow-auto bg-white">
+      <FitToViewport width={width} height={height}>
       <div
         className="relative shrink-0"
         style={{ width, minWidth: width, height, minHeight: height }}
@@ -53,6 +55,7 @@ export function FigmaScreen({
           />
         ))}
       </div>
+      </FitToViewport>
     </main>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { overlayRoot } from "@/lib/frame-scale";
 
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 import {
@@ -2387,7 +2388,6 @@ function RenameAssignmentTitleModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[210] flex items-center justify-center bg-black/35 p-4"
-      onClick={onClose}
       role="presentation"
     >
       <div
@@ -2440,7 +2440,7 @@ function RenameAssignmentTitleModal({
         </div>
       </div>
     </div>,
-    document.body,
+    overlayRoot(),
   );
 }
 
@@ -2485,7 +2485,6 @@ function DeleteAssignmentModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[210] flex items-center justify-center bg-black/35 p-4"
-      onClick={onClose}
       role="presentation"
     >
       <div
@@ -2555,7 +2554,7 @@ function DeleteAssignmentModal({
         </div>
       </div>
     </div>,
-    document.body,
+    overlayRoot(),
   );
 }
 
@@ -2586,14 +2585,13 @@ function ProblemDetailModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-6"
-      onClick={onClose}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`${row.text} 유형별 정답`}
-        className="flex max-h-[min(720px,90vh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex max-h-[min(720px,90%)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="relative border-b border-[#ECEDEF] bg-gradient-to-b from-[#F0F9FE] to-white px-6 pb-5 pt-5">
@@ -2775,7 +2773,7 @@ function ProblemDetailModal({
         </div>
       </div>
     </div>,
-    document.body,
+    overlayRoot(),
   );
 }
 

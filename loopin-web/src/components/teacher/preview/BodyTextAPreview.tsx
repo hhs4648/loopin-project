@@ -3,14 +3,19 @@
 import { useMemo, useRef, useState } from "react";
 import { figmaRectStyle } from "./figma-rect";
 import { useShrinkToFit } from "./use-shrink-to-fit";
+import { useScaleToFit } from "./use-scale-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
+import {
+  BODY_PREVIEW_EMPTY_HINT_CLASS,
+  BODY_PREVIEW_OPTION_CLASS,
+  BODY_PREVIEW_PLACED_CLASS,
+  BODY_PREVIEW_TILE_CLASS,
+} from "./body-preview-compact";
 import {
   COLOR_CORRECT_BG,
   COLOR_WRONG_BG,
   EXERCISE_CTA_CLASS,
-  EXERCISE_EMPTY_HINT_CLASS,
   EXERCISE_FEEDBACK_HINT_CLASS,
-  EXERCISE_OPTION_EN_CLASS,
   EXERCISE_PASSAGE_EN_CLASS,
   exerciseFeedbackTitleClass,
 } from "./exercise-typography";
@@ -18,7 +23,7 @@ import {
 const ASSET = "/assets/student-preview/본문A.svg";
 const PASSAGE = { x: 69, y: 211, w: 306, h: 56 };
 const SENTENCE_BOX = { x: 24, y: 344, w: 345, h: 137 };
-const TILES_MASK = { x: 18, y: 527, w: 355, h: 218 };
+const TILES_MASK = { x: 18, y: 500, w: 355, h: 245 };
 const SUBMIT_BTN = { x: 30, y: 751, w: 333, h: 60 };
 const FEEDBACK_SHEET = { x: 0, y: 648, w: 393, h: 204 };
 
@@ -47,13 +52,6 @@ function buildTiles(question: BodyTextAQuestion): Tile[] {
     segmentIndex: item.segmentIndex,
     label: item.label,
   }));
-}
-
-function segmentTileClass() {
-  return "rounded-[12px] border-[1.5px] border-[#C9D9EE] bg-white px-3 py-2 shadow-[0_2px_6px_rgba(80,120,180,0.08)]";
-}
-function placedSegmentClass() {
-  return "cursor-pointer rounded-lg border border-[#3C86FF] bg-white px-2 py-1 shadow-[0_1px_4px_rgba(60,134,255,0.1)]";
 }
 
 /** Single-question 번역 배열 preview — trimmed port of BodyTextAScreen. */
@@ -100,6 +98,13 @@ export function BodyTextAPreview({ question }: { question: BodyTextAQuestion }) 
   const passageTextRef = useRef<HTMLParagraphElement>(null);
   useShrinkToFit(passageBoxRef, passageTextRef, [question.exampleEn]);
 
+  const sentenceBoxRef = useRef<HTMLDivElement>(null);
+  const sentenceContentRef = useRef<HTMLDivElement>(null);
+  const tilesBoxRef = useRef<HTMLDivElement>(null);
+  const tilesContentRef = useRef<HTMLDivElement>(null);
+  useScaleToFit(sentenceBoxRef, sentenceContentRef, [selectedIds.length, question.id]);
+  useScaleToFit(tilesBoxRef, tilesContentRef, [question.id, tiles.length]);
+
   return (
     <PreviewFrame src={ASSET} alt="본문 A">
       <div className={`absolute inset-0 ${showFeedback ? "pointer-events-none" : ""}`}>
@@ -115,30 +120,44 @@ export function BodyTextAPreview({ question }: { question: BodyTextAQuestion }) 
         </div>
 
         <div aria-hidden className="pointer-events-none absolute bg-[#F6F9FD]" style={figmaRectStyle(SENTENCE_BOX)} />
-        <div className="absolute overflow-y-auto px-4 py-3" style={figmaRectStyle(SENTENCE_BOX)}>
-          {selectedTiles.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-center gap-1.5">
-              {selectedTiles.map((tile, index) => (
+        <div
+          ref={sentenceBoxRef}
+          className="absolute overflow-hidden px-2 py-2"
+          style={figmaRectStyle(SENTENCE_BOX)}
+        >
+          <div
+            ref={sentenceContentRef}
+            className="flex w-full flex-wrap items-center justify-center gap-1"
+          >
+            {selectedTiles.length > 0 ? (
+              selectedTiles.map((tile, index) => (
                 <button
                   key={`placed-${tile.id}-${index}`}
                   type="button"
-                  className={`whitespace-nowrap ${placedSegmentClass()}`}
+                  className={`whitespace-nowrap ${BODY_PREVIEW_PLACED_CLASS}`}
                   onClick={() => handlePlacedClick(index)}
                 >
-                  <span className={EXERCISE_OPTION_EN_CLASS}>{tile.label}</span>
+                  <span className={BODY_PREVIEW_OPTION_CLASS}>{tile.label}</span>
                 </button>
-              ))}
-            </div>
-          ) : (
-            <p className={`text-center ${EXERCISE_EMPTY_HINT_CLASS}`}>
-              예문 뜻 조각을 순서대로 눌러 문장을 완성하세요
-            </p>
-          )}
+              ))
+            ) : (
+              <p className={`text-center ${BODY_PREVIEW_EMPTY_HINT_CLASS}`}>
+                예문 뜻 조각을 순서대로 눌러 문장을 완성하세요
+              </p>
+            )}
+          </div>
         </div>
 
         <div aria-hidden className="pointer-events-none absolute bg-white" style={figmaRectStyle(TILES_MASK)} />
-        <div className="absolute overflow-y-auto px-3 py-2" style={figmaRectStyle(TILES_MASK)}>
-          <div className="flex flex-wrap items-center justify-center gap-2">
+        <div
+          ref={tilesBoxRef}
+          className="absolute overflow-hidden px-1.5 py-1"
+          style={figmaRectStyle(TILES_MASK)}
+        >
+          <div
+            ref={tilesContentRef}
+            className="flex w-full flex-wrap items-center justify-center gap-1"
+          >
             {tiles.map((tile) => {
               const isSelected = selectedIds.includes(tile.id);
               return (
@@ -146,12 +165,12 @@ export function BodyTextAPreview({ question }: { question: BodyTextAQuestion }) 
                   key={tile.id}
                   type="button"
                   disabled={isSelected}
-                  className={`whitespace-nowrap ${segmentTileClass()} ${
+                  className={`whitespace-nowrap ${BODY_PREVIEW_TILE_CLASS} ${
                     isSelected ? "invisible pointer-events-none" : "cursor-pointer"
                   }`}
                   onClick={() => handleTileClick(tile)}
                 >
-                  <span className={EXERCISE_OPTION_EN_CLASS}>{tile.label}</span>
+                  <span className={BODY_PREVIEW_OPTION_CLASS}>{tile.label}</span>
                 </button>
               );
             })}

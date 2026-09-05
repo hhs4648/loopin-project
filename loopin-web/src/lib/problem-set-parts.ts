@@ -1,4 +1,10 @@
 import type { ClassAssignment } from "@/lib/class-assignments";
+import { getUnitContent } from "@/lib/problem-bank";
+import {
+  buildItemAssignmentHistory,
+  pickUnassignedIds,
+  type ItemAssignmentHistory,
+} from "@/lib/problem-item-history";
 import {
   PART_CATEGORY_KEYS,
   PART_CATEGORY_LABEL,
@@ -10,6 +16,7 @@ import {
   type SavedProblemSet,
 } from "@/lib/problem-sets";
 import { classIdsEqual } from "@/lib/teacher-classes";
+import { isUnitProgressDismissed } from "@/lib/unit-progress-dismiss";
 
 /**
  * 한 단원을 여러 수업에 걸쳐 낼 때 쓰는 「파트」 선택 도구.
@@ -266,6 +273,56 @@ export function buildUnitPartProgress(
   return result.sort((a, b) =>
     b.latestAssignedAt.localeCompare(a.latestAssignedAt),
   );
+}
+
+/**
+ * 나눠 낸 카테고리의 **문항을 전부 이미 냈으면** 이어서 내기를 끝낸다.
+ * 파트 번호를 건너뛰고 「안 낸 n개 담기」로 나머지를 넣은 경우에도 카드를 지운다.
+ */
+export function areSplitCategoriesFullyAssigned(
+  unit: UnitPartProgress,
+  history: ItemAssignmentHistory,
+  classId: string,
+): boolean {
+  const content = getUnitContent({
+    grade: unit.grade,
+    textbook: unit.textbook,
+    unit: unit.unit,
+  });
+  const ids: Record<PartCategory, string[]> = {
+    words: content.words.map((item) => item.id),
+    sentences: content.sentences.map((item) => item.id),
+    grammar: content.grammar.map((item) => item.id),
+  };
+  return unit.categories.every((category) => {
+    const list = ids[category.category];
+    if (list.length === 0) return true;
+    return pickUnassignedIds(list, history, [classId]).length === 0;
+  });
+}
+
+/**
+ * 반 홈·문제 제출에 띄울 「이어서 내기」 목록.
+ * 삭제한 카드, 문항을 다 넣은 단원은 빼 둔다.
+ */
+export function visibleUnitPartProgress(
+  problemSets: SavedProblemSet[],
+  assignments: ClassAssignment[],
+  classId: string,
+): UnitPartProgress[] {
+  const raw = buildUnitPartProgress(problemSets, assignments, classId);
+  if (raw.length === 0) return raw;
+  const history = buildItemAssignmentHistory({
+    assignments,
+    problemSets,
+    classIds: [classId],
+  });
+  return raw.filter((unit) => {
+    if (isUnitProgressDismissed(classId, unit.unitKey, unit.latestAssignedAt)) {
+      return false;
+    }
+    return !areSplitCategoriesFullyAssigned(unit, history, classId);
+  });
 }
 
 /**

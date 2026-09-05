@@ -208,6 +208,28 @@ export function appendCustomSentence(
   return item;
 }
 
+/** 문제 제출 「본문」칸에서 만든 문장 id 접두사 — 다시 나누면 이 묶음만 갈아끼운다 */
+export function passageSentenceIdPrefix(scope: {
+  grade: string;
+  textbook: string;
+  unit: string;
+}): string {
+  return `sent-passage-${scope.grade}-${scope.textbook}-${scope.unit}-`;
+}
+
+export function replaceCustomSentencesByPrefix(
+  prefix: string,
+  inputs: CustomSentenceInput[],
+): ProblemSentence[] {
+  const bank = loadRaw();
+  const kept = bank.sentences.filter((item) => !item.id.startsWith(prefix));
+  const created = inputs.map((input, index) =>
+    buildSentence(input, `${prefix}${index + 1}`),
+  );
+  saveRaw({ ...bank, sentences: [...kept, ...created] });
+  return created;
+}
+
 export function appendCustomGrammar(
   input: CustomGrammarInput,
 ): ProblemGrammar {

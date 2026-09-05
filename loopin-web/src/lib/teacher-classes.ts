@@ -433,8 +433,18 @@ export function isDateInClassPeriods(
 }
 
 
+/**
+ * 반 목록이 바뀌었다고 알리는 이벤트.
+ *
+ * 반은 `TeacherFigmaFrame` 안에서 만들어지는데, 시작 가이드는 레이아웃에 얹혀
+ * 있어서 그 사실을 모른다. 이 리포가 이미 쓰는 방식(`haksup-*-changed`)을 따라
+ * 알린다 — 이게 없어서 반을 만들어도 가이드가 「1/4」에 멈춰 있었다.
+ */
+export const TEACHER_CLASSES_CHANGED = "haksup-teacher-classes-changed";
+
 export function saveTeacherClasses(classes: TeacherClass[]): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(classes));
+  window.dispatchEvent(new Event(TEACHER_CLASSES_CHANGED));
 }
 
 /** URL path에 안전한 ASCII id (한글 slug는 라우트 매칭이 깨질 수 있음) */

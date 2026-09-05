@@ -4,7 +4,7 @@ import type {
   ProblemSentenceSnapshot,
   ProblemWordSnapshot,
 } from "@/lib/sync/types";
-import { getUnitContent } from "@/lib/problem-bank";
+import { getUnitContent, stripMeaningParens } from "@/lib/problem-bank";
 import type {
   CreateProblemSetInput,
   CustomAssignmentDraft,
@@ -27,7 +27,7 @@ function buildCustomDraftSnapshot(
   const words: ProblemWordSnapshot[] = analyses.map((item) => ({
     id: item.id,
     english: (item.lemma || item.surface).trim() || item.surface,
-    korean: item.meaningKo.trim() || item.surface,
+    korean: stripMeaningParens(item.meaningKo) || item.surface,
     exampleEn:
       ensureWordCloze(item.sourceSentence, item.surface) ??
       ensureWordCloze(item.sourceSentence, item.lemma || "") ??
@@ -113,7 +113,7 @@ export function buildContentSnapshot(
     .map((w) => ({
       id: w.id,
       english: w.english,
-      korean: w.korean,
+      korean: stripMeaningParens(w.korean),
       exampleEn: ensureWordCloze(w.exampleEn, w.english) ?? w.exampleEn,
       exampleKo: w.exampleKo,
     }));

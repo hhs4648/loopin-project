@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GuideCoachMark } from "@/components/teacher/GuideCoachMark";
 import {
   OPEN_CREATE_CLASS_EVENT,
   START_GUIDE_STEPS,
+  TEACHER_GUIDE_CHANGED,
+  markInviteCodeSeen,
   patchGuideState,
   readGuideState,
   resolveStartGuideProgress,
@@ -13,7 +15,7 @@ import {
   type StartGuideStep,
   type StartGuideStepId,
 } from "@/lib/teacher-onboarding";
-import { CopyToast, copyToClipboard } from "@/components/teacher/CopyToast";
+import { TEACHER_CLASSES_CHANGED } from "@/lib/teacher-classes";
 import { ModalCloseButton } from "@/components/teacher/ModalCloseButton";
 
 /**
@@ -31,12 +33,21 @@ export function StartGuidePanel() {
   const [greeted, setGreeted] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [dismissed, setDismissed] = useState(true);
-  const [copied, setCopied] = useState(false);
   /** 지금 짚고 있는 단계 — null이면 코치마크를 안 띄운다 */
   const [pointing, setPointing] = useState<StartGuideStepId | null>(null);
 
+  /*
+    진행도 계산은 **서버를 한 번 다녀오므로**(학생 등록 확인) 여러 번 겹쳐 부르면
+    늦게 시작한 것이 먼저 끝날 수 있다. 그러면 뒤늦게 도착한 **옛 결과가 새 결과를
+    덮어써서** 방금 끝낸 단계의 체크가 도로 풀린다(초대 코드를 보고 「다음」을 눌러도
+    체크가 안 켜지고 새로고침해야 켜지던 문제). 마지막에 시작한 것만 반영한다.
+  */
+  const refreshSeq = useRef(0);
   const refresh = useCallback(async () => {
+    const seq = refreshSeq.current + 1;
+    refreshSeq.current = seq;
     const next = await resolveStartGuideProgress();
+    if (seq !== refreshSeq.current) return;
     setProgress(next);
   }, []);
 
@@ -55,6 +66,8 @@ export function StartGuidePanel() {
   useEffect(() => {
     const onChanged = () => void refresh();
     const events = [
+      TEACHER_GUIDE_CHANGED,
+      TEACHER_CLASSES_CHANGED,
       "haksup-class-assignments-changed",
       "haksup-problem-sets-changed",
       OPEN_CREATE_CLASS_EVENT,
@@ -68,6 +81,47 @@ export function StartGuidePanel() {
   }, [refresh]);
 
   if (!progress || dismissed) return null;
+
+  /*
+    짚던 단계가 실제로 끝나면 코치마크를 내린다. 안 그러면 반을 다 만들고도
+    「새 반 추가를 눌러 주세요」가 남아 다시 만들라는 것처럼 보인다.
+    상태를 고치지 않고 그릴 때 걸러 낸다 — 다음 단계를 짚으려고 다시 누르면 되살아난다.
+  */
+  const activePoint = pointing && !progress.done[pointing] ? pointing : null;
+
+  /*
+    코치마크는 패널을 접어도 살아 있어야 한다. 안내가 떠 있는 동안에는 다른 곳이
+    눌리지 않으므로, 접기 한 번에 안내가 사라지면 나가는 길이 사라진 것처럼 보인다.
+  */
+  const coachMark = activePoint ? (
+    <GuideCoachMark
+      step={activePoint}
+      classId={progress.primaryClass?.id ?? ""}
+      onClose={() => setPointing(null)}
+      onSkipAll={() => {
+        patchGuideState({ dismissed: true });
+        setDismissed(true);
+        setPointing(null);
+      }}
+      onGo={(href) => router.push(href)}
+      onProgressMayChange={() => void refresh()}
+      onFinish={() => {
+        /*
+          초대 코드까지 다 보고 안내를 마쳤으면 「학생 초대하기」는 끝난 것으로 친다.
+          학생이 실제로 들어오는 건 선생님이 정할 수 없는 일이라, 그때까지 체크가
+          안 되면 자기가 뭘 빠뜨린 줄 안다.
+
+          **「보여 준 순간」이 아니라 「다 보고 마쳤을 때」다.** 짚자마자 완료로 치면
+          그 단계가 끝난 것이 되어 코치마크가 그 자리에서 사라진다 — 정작 코드가
+          어디 있는지 볼 새가 없다.
+        */
+        if (activePoint === "invite-students") {
+          markInviteCodeSeen();
+          void refresh();
+        }
+      }}
+    />
+  ) : null;
 
   // 네 단계를 다 끝냈으면 한 번 알리고 사라진다
   if (progress.allDone) {
@@ -183,8 +237,11 @@ export function StartGuidePanel() {
   // ── 접힌 상태 — 배지만 ────────────────────────────────────────────────────
   if (collapsed) {
     return (
+      <>
+        {coachMark}
       <button
         type="button"
+        data-guide-panel
         className="fixed bottom-5 right-5 z-[55] flex items-center gap-2 rounded-full border border-[#E1E2E4] bg-white px-4 py-2.5 text-[13px] font-bold text-[#3D4148] shadow-[0_4px_16px_rgba(0,0,0,0.10)] hover:border-[#1AA7F2]"
         onClick={() => {
           patchGuideState({ collapsed: false });
@@ -196,6 +253,7 @@ export function StartGuidePanel() {
           {progress.doneCount}/{total}
         </span>
       </button>
+      </>
     );
   }
 
@@ -203,20 +261,7 @@ export function StartGuidePanel() {
 
   return (
     <>
-      {pointing ? (
-        <GuideCoachMark
-          step={pointing}
-          classId={progress.primaryClass?.id ?? ""}
-          onClose={() => setPointing(null)}
-          onSkipAll={() => {
-            patchGuideState({ dismissed: true });
-            setDismissed(true);
-            setPointing(null);
-          }}
-          onGo={(href) => router.push(href)}
-          onProgressMayChange={() => void refresh()}
-        />
-      ) : null}
+      {coachMark}
       <GuideShell>
       <div className="flex items-center justify-between">
         <h3 className="text-[14px] font-bold text-[#15171A]">시작 가이드</h3>
@@ -272,12 +317,6 @@ export function StartGuidePanel() {
                       </p>
                       <StepAction
                         step={step}
-                        inviteCode={progress.primaryClass?.inviteCode ?? ""}
-                        copied={copied}
-                        onCopied={() => {
-                          setCopied(true);
-                          window.setTimeout(() => setCopied(false), 2000);
-                        }}
                         onPoint={() => setPointing(step.id)}
                       />
                     </>
@@ -289,7 +328,6 @@ export function StartGuidePanel() {
         })}
       </ul>
     </GuideShell>
-      <CopyToast visible={copied} />
     </>
   );
 }
@@ -298,7 +336,10 @@ export function StartGuidePanel() {
 
 function GuideShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="fixed bottom-5 right-5 z-[55] w-[300px] rounded-[16px] border border-[#E1E2E4] bg-white p-4 shadow-[0_8px_28px_rgba(0,0,0,0.12)]">
+    <div
+      data-guide-panel
+      className="fixed bottom-5 right-5 z-[55] w-[300px] rounded-[16px] border border-[#E1E2E4] bg-white p-4 shadow-[0_8px_28px_rgba(0,0,0,0.12)]"
+    >
       {children}
     </div>
   );
@@ -306,15 +347,9 @@ function GuideShell({ children }: { children: React.ReactNode }) {
 
 function StepAction({
   step,
-  inviteCode,
-  copied,
-  onCopied,
   onPoint,
 }: {
   step: StartGuideStep;
-  inviteCode: string;
-  copied: boolean;
-  onCopied: () => void;
   /** 화면의 실제 버튼을 짚어 준다 — 대신 눌러 주지 않는다 */
   onPoint: () => void;
 }) {
@@ -334,39 +369,10 @@ function StepAction({
   }
 
   /*
-    초대 코드는 **가이드 안에서 바로 복사**한다. 반 홈까지 찾아가게 하면
-    「어디 있더라」로 끝난다. 반 홈의 복사 버튼과 같은 동작이다.
+    **여기서 바로 복사해 주지 않는다.** 예전에는 코드와 복사 버튼을 이 카드에 박아
+    뒀는데, 그러면 편하긴 해도 정작 **코드가 어디 있는지는 끝내 모른다**. 다음에 혼자
+    찾아야 할 때 「어디 있더라」가 된다. 반 홈까지 데려가 그 자리를 짚어 준다.
   */
-  if (step.id === "invite-students") {
-    return (
-      <div className="mt-2 flex items-center gap-2">
-        <span className="rounded-[8px] border border-[#E0E4EA] bg-[#F7FCF2] px-2.5 py-1 text-[13px] font-bold tracking-wide text-[#16150F]">
-          {inviteCode || "—"}
-        </span>
-        <button
-          type="button"
-          disabled={!inviteCode}
-          className={`${base} mt-0 bg-[#1AA7F2] text-white hover:bg-[#1596DB] disabled:bg-[#C4C4C4]`}
-          onClick={() => {
-            if (!inviteCode) return;
-            void copyToClipboard(inviteCode).then((ok) => {
-              if (ok) onCopied();
-            });
-          }}
-        >
-          {copied ? "복사됨" : "코드 복사"}
-        </button>
-        <button
-          type="button"
-          className={`${base} mt-0 border border-[#E1E2E4] bg-white text-[#3D4148] hover:border-[#1AA7F2] hover:text-[#1AA7F2]`}
-          onClick={onPoint}
-        >
-          위치 보기
-        </button>
-      </div>
-    );
-  }
-
   return (
     <button
       type="button"

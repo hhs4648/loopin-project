@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { overlayRoot } from "@/lib/frame-scale";
 
 export async function copyToClipboard(text: string): Promise<boolean> {
   try {
@@ -46,6 +47,6 @@ export function CopyToast({ visible }: { visible: boolean }) {
     >
       클립보드에 복사되었습니다
     </div>,
-    document.body,
+    overlayRoot(),
   );
 }

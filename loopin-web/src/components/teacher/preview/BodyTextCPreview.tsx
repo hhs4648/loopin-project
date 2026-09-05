@@ -3,21 +3,22 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { figmaRectStyle } from "./figma-rect";
 import { useShrinkToFit } from "./use-shrink-to-fit";
+import { useScaleToFit } from "./use-scale-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
+import { BODY_PREVIEW_OPTION_CLASS } from "./body-preview-compact";
 import {
   COLOR_CORRECT_BG,
   COLOR_WRONG_BG,
   EXERCISE_CTA_CLASS,
   EXERCISE_FEEDBACK_HINT_CLASS,
   EXERCISE_INPUT_EN_CLASS,
-  EXERCISE_OPTION_EN_CLASS,
   EXERCISE_PASSAGE_KO_CLASS,
   exerciseFeedbackTitleClass,
 } from "./exercise-typography";
 
 const ASSET = "/assets/student-preview/본문C.svg";
 const PASSAGE = { x: 17, y: 252, w: 306, h: 84 };
-const SENTENCE_BOX = { x: 24, y: 344, w: 345, h: 137 };
+const SENTENCE_BOX = { x: 24, y: 344, w: 345, h: 380 };
 const SUBMIT_BTN = { x: 30, y: 751, w: 333, h: 60 };
 const SUBMIT_BTN_MASK = { x: 26, y: 747, w: 341, h: 68 };
 const FEEDBACK_SHEET = { x: 0, y: 648, w: 393, h: 204 };
@@ -212,6 +213,14 @@ export function BodyTextCPreview({ question }: { question: BodyTextCQuestion }) 
   const passageTextRef = useRef<HTMLParagraphElement>(null);
   useShrinkToFit(passageBoxRef, passageTextRef, [question.promptKo]);
 
+  const sentenceBoxRef = useRef<HTMLFormElement>(null);
+  const sentenceContentRef = useRef<HTMLDivElement>(null);
+  useScaleToFit(sentenceBoxRef, sentenceContentRef, [
+    question.id,
+    question.exampleEn,
+    typedLetters,
+  ]);
+
   return (
     <PreviewFrame src={ASSET} alt="본문 C">
       <div
@@ -244,19 +253,21 @@ export function BodyTextCPreview({ question }: { question: BodyTextCQuestion }) 
         />
         <form
           id="body-text-c-preview-form"
-          className="absolute z-[2] flex cursor-text flex-col overflow-hidden px-4 py-4"
+          ref={sentenceBoxRef}
+          className="absolute z-[2] flex cursor-text flex-col overflow-hidden px-2 py-2"
           style={figmaRectStyle(SENTENCE_BOX)}
           onSubmit={handleSubmit}
           onClick={focusInput}
         >
           <div
+            ref={sentenceContentRef}
             aria-hidden
-            className="pointer-events-none flex min-h-0 flex-1 flex-wrap content-center justify-center gap-x-6 gap-y-3"
+            className="pointer-events-none flex w-full flex-wrap content-start justify-center gap-x-2 gap-y-1.5"
           >
             {displayWords.map((word, wordIndex) => (
               <span
                 key={`word-${wordIndex}`}
-                className={`inline-flex items-center gap-[6px] leading-none ${EXERCISE_OPTION_EN_CLASS}`}
+                className={`inline-flex items-center gap-[2px] leading-none ${BODY_PREVIEW_OPTION_CLASS}`}
               >
                 {word.map((ch, charIndex) => {
                   const isTypeable =
@@ -276,10 +287,10 @@ export function BodyTextCPreview({ question }: { question: BodyTextCQuestion }) 
                   return (
                     <span
                       key={`ch-${wordIndex}-${charIndex}`}
-                      className={`relative inline-flex w-[0.85em] flex-col items-center justify-end rounded-sm pb-[2px] ${displayCharClass(ch)} ${
+                      className={`relative inline-flex w-[0.7em] flex-col items-center justify-end rounded-sm pb-px ${displayCharClass(ch)} ${
                         isHint ? "bg-[#E2E8F0]" : ""
                       } ${isCaret ? "bg-[#DCEBFF] text-[#1F242E]" : ""} ${
-                        showUnderline ? "border-b-2 border-current" : ""
+                        showUnderline ? "border-b border-current" : ""
                       }`}
                     >
                       {ch.kind === "blank" ? "\u00A0" : displayCharText(ch)}

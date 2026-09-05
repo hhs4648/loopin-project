@@ -138,6 +138,34 @@ export function stripBrackets(text: string): string {
   return text.replace(/\[([^\]]+)\]/g, "$1").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 단어 뜻에서 괄호 안 부가 설명은 빼 둔다.
+ * 문제(짝맞추기·3지선다 등)에만 쓰고, 수정 칸·문제은행 원문은 그대로 둔다.
+ * 예: `(비 등이) 거센` → `거센`, `응급(상황)` → `응급`
+ */
+export function stripMeaningParens(text: string): string {
+  const source = text.trim();
+  if (!source) return source;
+
+  let next = source;
+  for (let i = 0; i < 8; i += 1) {
+    const stripped = next.replace(/[（(][^（）()]*[）)]/g, "");
+    if (stripped === next) break;
+    next = stripped;
+  }
+
+  const cleaned = next
+    .replace(/\s+/g, " ")
+    .replace(/\s*([,;])\s*/g, "$1 ")
+    .replace(/^[,;\s]+|[,;\s]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned) return cleaned;
+
+  const inner = source.replace(/^[（(]/, "").replace(/[）)]$/, "").trim();
+  return inner || source;
+}
+
 export function splitEnglishChunks(sentence: string): string[] {
   if (sentence.includes("/")) {
     return sentence

@@ -31,12 +31,20 @@ execSync(
   { stdio: "pipe" }
 );
 
+/*
+  엑셀 파일마다 XML 태그에 **네임스페이스 접두사가 붙기도 한다** — 엑셀 데스크톱이
+  쓴 파일은 `<si>`지만, 엑셀 온라인이나 일부 라이브러리로 저장하면 `<x:si>`가 된다.
+  접두사를 안 받아 주면 시트를 하나도 못 읽고 **조용히 0건을 쓴다**(에러도 안 난다).
+  그래서 아래 정규식은 전부 `NS`로 접두사를 선택 처리한다.
+*/
+const NS = "(?:[A-Za-z0-9_.-]+:)?";
+
 function parseShared(xml) {
   const shared = [];
-  const siRe = /<si[^>]*>([\s\S]*?)<\/si>/g;
+  const siRe = new RegExp(String.raw`<${NS}si[^>]*>([\s\S]*?)<\/${NS}si>`, "g");
   let m;
   while ((m = siRe.exec(xml))) {
-    const tRe = /<t[^>]*>([\s\S]*?)<\/t>/g;
+    const tRe = new RegExp(String.raw`<${NS}t[^>]*>([\s\S]*?)<\/${NS}t>`, "g");
     let t;
     let text = "";
     while ((t = tRe.exec(m[1]))) text += t[1];
@@ -53,24 +61,38 @@ function colToIndex(col) {
 
 function parseSheet(xml, shared) {
   const rows = [];
-  const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g;
+  const rowRe = new RegExp(String.raw`<${NS}row[^>]*>([\s\S]*?)<\/${NS}row>`, "g");
   let rm;
   while ((rm = rowRe.exec(xml))) {
     const map = {};
     let max = -1;
     // 빈 셀은 `<c r="B3" s="1"/>`처럼 self-closing으로 나온다.
     // `</c>`를 강제하면 그 뒤 셀들을 통째로 삼켜 열이 밀리므로 두 형태를 모두 받는다.
-    const cRe = /<c r="([A-Z]+)(\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    const cRe = new RegExp(
+      String.raw`<${NS}c r="([A-Z]+)(\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/${NS}c>)`,
+      "g"
+    );
     let cm;
     while ((cm = cRe.exec(rm[1]))) {
       const col = colToIndex(cm[1]);
       const attrs = cm[3];
       const inner = cm[4] ?? "";
       let val = "";
-      const v = inner.match(/<v>([\s\S]*?)<\/v>/);
+      const v = inner.match(new RegExp(String.raw`<${NS}v>([\s\S]*?)<\/${NS}v>`));
       if (v) {
         val = v[1];
         if (/t="s"/.test(attrs)) val = shared[Number(val)] ?? val;
+      } else if (/t="inlineStr"/.test(attrs)) {
+        // 인라인 문자열(`<is><t>…</t></is>`)은 `<v>`가 없다. 엑셀이 직접 쓴 시트는
+        // 거의 안 쓰지만, 다른 도구로 만들거나 붙여넣은 시트에는 이 형태가 나온다.
+        // 못 읽으면 **머리글이 통째로 빈 칸이 되어** 그 시트가 조용히 무시된다.
+        val = [
+          ...inner.matchAll(
+            new RegExp(String.raw`<${NS}t[^>]*>([\s\S]*?)<\/${NS}t>`, "g")
+          ),
+        ]
+          .map((m) => m[1])
+          .join("");
       }
       map[col] = val;
       max = Math.max(max, col);
@@ -116,21 +138,28 @@ function sheetTextbookToUi(v) {
 }
 
 function getSheetNames(workbookXml, relsXml) {
+  // 속성 순서는 파일마다 다르다(`Id` 다음 `Target`인 것도, 반대인 것도 있다).
+  // 순서를 박아 두면 그 파일만 통째로 안 읽히므로 태그를 먼저 끊고 속성을 따로 읽는다.
+  const attr = (tag, name) =>
+    tag.match(new RegExp(String.raw`${name}="([^"]*)"`))?.[1];
   const idToTarget = {};
-  const relRe =
-    /<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/?>/g;
+  const relRe = new RegExp(String.raw`<${NS}Relationship\b[^>]*>`, "g");
   let rm;
   while ((rm = relRe.exec(relsXml))) {
-    idToTarget[rm[1]] = rm[2].replace(/^.*\//, "");
+    const id = attr(rm[0], "Id");
+    const target = attr(rm[0], "Target");
+    if (id && target) idToTarget[id] = target.replace(/^.*\//, "");
   }
   const sheets = [];
-  const sheetRe =
-    /<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"[^>]*\/?>/g;
+  const sheetRe = new RegExp(String.raw`<${NS}sheet\b[^>]*>`, "g");
   let m;
   while ((m = sheetRe.exec(workbookXml))) {
+    const name = attr(m[0], "name");
+    const rid = attr(m[0], "r:id");
+    if (!name || !rid) continue;
     sheets.push({
-      name: decodeXml(m[1]),
-      file: idToTarget[m[2]],
+      name: decodeXml(name),
+      file: idToTarget[rid],
       hidden: /state="hidden"/.test(m[0]),
     });
   }
@@ -183,6 +212,27 @@ const sheetMeta = getSheetNames(workbookXml, relsXml);
 const words = [];
 const sentences = [];
 const grammar = [];
+/*
+  「TTS」 시트 — **음성만 만들고 문제은행에는 안 싣는 문장**들.
+
+  교과서 본문은 저작권 때문에 플랫폼이 사전 탑재하지 않고 교사가 직접 입력한다
+  (수업목적 이용 + OSP 면책 구조). 그런데 교사가 치는 문장은 결국 원문 그대로라,
+  음성을 미리 뽑아 두면 학생이 들을 때 Edge Function을 한 번도 안 친다.
+
+  음성 파일 이름이 **텍스트의 해시**라 이게 성립한다 — 원문을 problem-bank.json에도
+  매니페스트에도 안 적고, mp3만 갖고 있어도 교사가 같은 문장을 넣는 순간 맞아떨어진다.
+  그래서 이 목록은 **임시 파일로만** 학생 리포에 넘긴다. 원문이 남는 곳은 엑셀뿐이다.
+*/
+const ttsOnly = [];
+/*
+  TTS 시트에 올라온 **단원**. 「이 단원의 본문은 음성만 갖고, 문제은행에는 안 싣는다」는
+  뜻이라 아래 mergeByScope에 같이 넘긴다.
+
+  안 넘기면: 문장을 「문장」 시트에서 빼 TTS 시트로 옮겨도, 그 단원에 새 문장이 0개라
+  merge가 **손댈 게 없다고 보고 예전 문장을 그대로 남긴다.** 저작권 때문에 뺀 본문이
+  조용히 살아 있게 되는 것이라, 시트를 옮긴 것만으로 지워지게 만들어 둔다.
+*/
+const ttsScopes = new Set();
 const wordKey = (w) => `${w.grade}|${w.textbook}|${w.unit}|${w.english}`;
 const seenWords = new Set();
 
@@ -194,6 +244,21 @@ for (const meta of sheetMeta) {
   const [header, ...dataRows] = rows;
   const idx = headerIndex(header);
   console.log("SHEET:", meta.name, meta.hidden ? "(hidden)" : "", Object.keys(idx));
+
+  // 「TTS」가 이름에 들어간 시트는 음성 전용이다 (「TTS」, 「본문(TTS)」 …)
+  if (/tts/i.test(meta.name)) {
+    dataRows.forEach((r) => {
+      const english =
+        cell(r, idx, "영어 문장") || cell(r, idx, "문장") || cell(r, idx, "영어");
+      if (!english) return;
+      ttsOnly.push(english);
+      const grade = sheetGradeToUi(cell(r, idx, "학년"));
+      const textbook = sheetTextbookToUi(cell(r, idx, "교과서"));
+      const unit = sheetUnitToUi(cell(r, idx, "단원"));
+      if (grade && textbook && unit) ttsScopes.add(`${grade}|${textbook}|${unit}`);
+    });
+    continue;
+  }
 
   if (meta.name === "문장") {
     dataRows.forEach((r, i) => {
@@ -306,18 +371,15 @@ for (const meta of sheetMeta) {
         isBasicWord: cell(r, idx, "기초단어 여부").toLowerCase() === "o",
         english,
         korean,
-        // 예문은 이제 교과서 원문이 아니라 자체 창작이라 「예문」 열을 우선 읽는다.
-        // 열 이름을 아직 안 바꿨어도 되도록 구 이름(「교과서 예문」)도 그대로 받는다.
-        // 열 이름이 양식마다 다르다. **단어 시트 안에서는** 「문장」도 그 단어의
-        // 예문을 가리킨다(문장 시트의 「문장」과 이름만 같고 뜻이 다르지 않다).
-        exampleEn:
-          cell(r, idx, "예문") ||
-          cell(r, idx, "문장") ||
-          cell(r, idx, "교과서 예문"),
-        exampleKo:
-          cell(r, idx, "예문 뜻") ||
-          cell(r, idx, "문장 뜻") ||
-          cell(r, idx, "한국어 뜻"),
+        // 예문은 자체 창작만 싣는다. 열 이름이 양식마다 다르다 — **단어 시트 안에서는**
+        // 「문장」도 그 단어의 예문을 가리킨다(문장 시트의 「문장」과 이름만 같다).
+        //
+        // 「교과서 예문」/「한국어 뜻」은 **일부러 안 읽는다.** 이 두 열에는 실제로
+        // 교과서 본문이 들어온다 — 문맥에 맞는 단어 뜻을 고를 때 참고하려고 채워 오는
+        // 열이라 엑셀에는 남아도 되지만, 문제은행에 실으면 본문을 TTS 시트로 뺀 것이
+        // (2026-09) 단어 예문으로 되살아난다.
+        exampleEn: cell(r, idx, "예문") || cell(r, idx, "문장"),
+        exampleKo: cell(r, idx, "예문 뜻") || cell(r, idx, "문장 뜻"),
       };
       const key = wordKey(item);
       if (seenWords.has(key)) {
@@ -368,10 +430,12 @@ function fillMissingChunks(sentenceList, wordList) {
   }
 }
 
-function mergeByScope(prev, next) {
+function mergeByScope(prev, next, alsoDrop) {
   const keys = new Set(
     next.map((item) => `${item.grade}|${item.textbook}|${item.unit}`)
   );
+  // 새 항목이 0개인 단원도 「비운다」고 말할 수 있어야 한다 (TTS 시트로 옮긴 본문)
+  for (const key of alsoDrop ?? []) keys.add(key);
   return [
     ...prev.filter(
       (item) => !keys.has(`${item.grade}|${item.textbook}|${item.unit}`)
@@ -402,14 +466,15 @@ fillMissingChunks(sentences, words);
 
 const result = {
   words: mergeByScope(existing.words, words),
-  sentences: mergeByScope(existing.sentences, sentences),
+  sentences: mergeByScope(existing.sentences, sentences, ttsScopes),
   grammar: mergeByScope(existing.grammar, grammar),
 };
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, JSON.stringify(result, null, 2), "utf8");
 console.log(
-  `Wrote words=${result.words.length} sentences=${result.sentences.length} grammar=${result.grammar.length}`
+  `Wrote words=${result.words.length} sentences=${result.sentences.length} grammar=${result.grammar.length}` +
+    (ttsOnly.length ? ` (+ 음성만 ${ttsOnly.length}문장 — 문제은행에는 안 실림)` : "")
 );
 
 /*
@@ -435,9 +500,21 @@ const ttsScript =
 if (fs.existsSync(ttsScript)) {
   console.log("");
   console.log("학생 앱 음성 갱신 중…");
-  const r = spawnSync(process.execPath, [ttsScript, outPath], {
-    stdio: "inherit",
-  });
+  // 「TTS」 시트는 임시 파일로만 넘긴다 — 두 리포 어디에도 본문 원문을 안 남기려는 것이다
+  let extraFile = "";
+  if (ttsOnly.length) {
+    extraFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "tts-extra-")),
+      "extra.json"
+    );
+    fs.writeFileSync(extraFile, JSON.stringify(ttsOnly), "utf8");
+  }
+  const r = spawnSync(
+    process.execPath,
+    [ttsScript, outPath, ...(extraFile ? [`--extra=${extraFile}`] : [])],
+    { stdio: "inherit" }
+  );
+  if (extraFile) fs.rmSync(path.dirname(extraFile), { recursive: true, force: true });
   if (r.status !== 0) {
     console.warn(
       "음성 갱신이 끝나지 못했습니다. 학생 리포에서 `npm run tts:build`를 직접 돌려 주세요."

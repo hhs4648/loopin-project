@@ -41,14 +41,13 @@ export function VocabPracticeSession({
   return (
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4"
-      onClick={onClose}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={`${MODE_LABEL[mode]} 연습`}
-        className="flex max-h-[min(860px,94vh)] w-full max-w-[720px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex max-h-[min(860px,94%)] w-full max-w-[720px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[#F0F1F3] px-5 py-4">

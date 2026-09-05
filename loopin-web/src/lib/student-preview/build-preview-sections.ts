@@ -1,7 +1,8 @@
-import type {
-  ProblemGrammar,
-  ProblemSentence,
-  ProblemWord,
+import {
+  stripMeaningParens,
+  type ProblemGrammar,
+  type ProblemSentence,
+  type ProblemWord,
 } from "@/lib/problem-bank";
 import type { WordMatchPair } from "@/components/teacher/preview/WordMatchPreview";
 import type { WordQuizQuestion } from "@/components/teacher/preview/WordQuizPreview";
@@ -86,12 +87,16 @@ function parseGrammarChoices(choices: string | undefined): string[] {
 
 // --- word ---
 
+function wordMeaning(word: ProblemWord): string {
+  return stripMeaningParens(word.korean);
+}
+
 export function buildWordMatchPreview(
   item: ProblemWord,
   pool: ProblemWord[],
 ): PreviewSection {
-  const valid = pool.filter((word) => word.english.trim() && word.korean.trim());
-  if (!item.english.trim() || !item.korean.trim()) {
+  const valid = pool.filter((word) => word.english.trim() && wordMeaning(word));
+  if (!item.english.trim() || !wordMeaning(item)) {
     return {
       kind: "unavailable",
       label: "짝맞추기",
@@ -102,11 +107,11 @@ export function buildWordMatchPreview(
   const others = shuffle(valid.filter((word) => word.id !== item.id));
   const fillers = others.slice(0, 3);
   const pairs: WordMatchPair[] = [
-    { id: item.id, english: item.english.trim(), korean: item.korean.trim() },
+    { id: item.id, english: item.english.trim(), korean: wordMeaning(item) },
     ...fillers.map((word) => ({
       id: word.id,
       english: word.english.trim(),
-      korean: word.korean.trim(),
+      korean: wordMeaning(word),
     })),
   ];
 
@@ -117,8 +122,8 @@ export function buildWordListenMatchPreview(
   item: ProblemWord,
   pool: ProblemWord[],
 ): PreviewSection {
-  const valid = pool.filter((word) => word.english.trim() && word.korean.trim());
-  if (!item.english.trim() || !item.korean.trim()) {
+  const valid = pool.filter((word) => word.english.trim() && wordMeaning(word));
+  if (!item.english.trim() || !wordMeaning(item)) {
     return {
       kind: "unavailable",
       label: "음성 짝맞추기",
@@ -129,11 +134,11 @@ export function buildWordListenMatchPreview(
   const others = shuffle(valid.filter((word) => word.id !== item.id));
   const fillers = others.slice(0, 3);
   const pairs: WordMatchPair[] = [
-    { id: item.id, english: item.english.trim(), korean: item.korean.trim() },
+    { id: item.id, english: item.english.trim(), korean: wordMeaning(item) },
     ...fillers.map((word) => ({
       id: word.id,
       english: word.english.trim(),
-      korean: word.korean.trim(),
+      korean: wordMeaning(word),
     })),
   ];
 
@@ -148,10 +153,11 @@ export function buildWordQuizPreview(
   item: ProblemWord,
   pool: ProblemWord[],
 ): PreviewSection {
+  const correct = wordMeaning(item);
   const distractorPool = pool
-    .filter((word) => word.id !== item.id && word.korean.trim())
-    .map((word) => word.korean.trim());
-  const options = buildThreeChoices(item.korean, distractorPool);
+    .filter((word) => word.id !== item.id && wordMeaning(word))
+    .map((word) => wordMeaning(word));
+  const options = buildThreeChoices(correct, distractorPool);
   if (!options) {
     return {
       kind: "unavailable",
@@ -166,7 +172,7 @@ export function buildWordQuizPreview(
     question: {
       id: `${item.id}:choice`,
       word: item.english,
-      correctAnswer: item.korean,
+      correctAnswer: correct,
       options,
     },
   };
@@ -182,16 +188,17 @@ export function buildWordSpellPreview(item: ProblemWord): PreviewSection {
     };
   }
 
+  const meaning = wordMeaning(item);
   return {
     kind: "word-spell",
     label: "예문 빈칸",
     question: {
       id: `${item.id}:spell`,
-      korean: item.exampleKo || item.korean,
+      korean: item.exampleKo || meaning,
       englishBefore: cloze.englishBefore,
       englishAfter: cloze.englishAfter,
       answer: cloze.answer,
-      answerHint: `${cloze.answer}(${item.korean})`,
+      answerHint: `${cloze.answer}(${meaning})`,
     },
   };
 }

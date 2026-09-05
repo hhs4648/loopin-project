@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { overlayRoot } from "@/lib/frame-scale";
 
 import { toLocalIsoDate } from "@/lib/calendar-one-off-lessons";
 import {
@@ -199,16 +200,13 @@ export function ReissueWrongAnswersModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-4"
-      onClick={() => {
-        if (!locked) onClose();
-      }}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[min(720px,92vh)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex max-h-[min(720px,92%)] w-full max-w-[520px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#F0F1F3] px-5 py-4">
@@ -382,6 +380,6 @@ export function ReissueWrongAnswersModal({
         </div>
       </div>
     </div>,
-    document.body,
+    overlayRoot(),
   );
 }

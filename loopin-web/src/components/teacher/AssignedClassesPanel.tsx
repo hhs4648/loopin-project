@@ -153,7 +153,12 @@ export function AssignedClassesPanel({
       </p>
 
       {visibleGrades.length > 0 ? (
-        <div className={SIDEBAR_GROUP_CARD_CLASS}>
+        /*
+          시작 가이드(학생 초대)가 「여기서 반을 누르세요」라고 짚는 자리.
+          학년 묶음을 펴는 것도, 반을 고르는 것도 이 안에서 일어나므로
+          카드 전체를 표식으로 잡는다 — 반이 여럿이어도 어느 것을 눌러도 된다.
+        */
+        <div className={SIDEBAR_GROUP_CARD_CLASS} data-guide="class-list">
           {visibleGrades.map((grade, gradeIndex) => {
             const items = groupedClasses[grade];
             /* hydration 전엔 접힌 상태로 그려 flash 방지 */

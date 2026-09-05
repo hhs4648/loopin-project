@@ -14,6 +14,8 @@ export type AssignDraftUi = {
       lessonDate: string;
       deadlineDays: number;
       deadlineMode: "manual" | "until_next_class";
+      /** HH:MM · 직접 설정 마감 시각. 없으면 23:59 */
+      deadlineTime?: string;
     }
   >;
   /** 반 id → (칩 키 → YYYY-MM-DD) */

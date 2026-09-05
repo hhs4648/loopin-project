@@ -47,8 +47,8 @@ export const START_GUIDE_STEPS: readonly StartGuideStep[] = [
   {
     id: "invite-students",
     title: "학생 초대하기",
-    hint: "학생이 앱에서 이 코드를 넣으면 반에 들어와요.",
-    cta: "초대 코드 복사",
+    hint: "반 홈에 있는 여섯 자리 코드를 학생에게 알려주면 돼요.",
+    cta: "초대 코드 보러 가기",
   },
   {
     id: "assign",
@@ -67,14 +67,25 @@ export const START_GUIDE_STEPS: readonly StartGuideStep[] = [
   },
 ] as const;
 
-/** 저장하는 것은 **접힘 여부와 ④ 방문 기록뿐**이다 */
+/**
+ * 저장하는 것은 **접힘 여부와, 데이터로 알 수 없는 두 가지 방문 기록뿐**이다.
+ * 반·과제처럼 실제 데이터로 알 수 있는 것은 저장하지 않는다.
+ */
 type StoredState = {
   /** 인사 카드를 이미 봤는지 */
   greeted?: boolean;
   /** 「나중에」로 접어 뒀는지 */
   collapsed?: boolean;
-  /** 과제 현황(반 → 과제 탭)을 연 적이 있는지 — 이것만은 데이터로 알 수 없다 */
+  /** 과제 현황(반 → 과제 탭)을 연 적이 있는지 — 데이터로 알 수 없다 */
   reviewedAt?: string;
+  /**
+   * 초대 코드를 안내로 직접 확인했는지.
+   *
+   * 학생이 실제로 들어오는 건 **선생님이 통제할 수 없는 일**이다(코드를 알려 준 뒤
+   * 학생이 앱을 깔아야 한다). 그때까지 체크가 안 되면 선생님은 자기가 뭘 빠뜨린 줄
+   * 안다. 코드가 어디 있는지 확인했으면 선생님 몫은 끝난 것으로 본다.
+   */
+  inviteCodeSeenAt?: string;
   /** 다 끝내고 닫았는지 */
   dismissed?: boolean;
 };
@@ -97,9 +108,21 @@ function write(next: StoredState): void {
   }
 }
 
+/**
+ * 가이드 상태가 바뀌었다고 알리는 이벤트.
+ *
+ * 기록은 화면 여기저기서 남는다 — 과제 탭을 열면 `TeacherFigmaFrame`이,
+ * 초대 코드를 다 보면 코치마크가. 알리지 않으면 시작 가이드 카드는 그 사실을 몰라
+ * **다 해놓고도 체크가 안 켜진 채** 남는다(과제 탭에서 실제로 그랬다).
+ */
+export const TEACHER_GUIDE_CHANGED = "haksup-teacher-guide-changed";
+
 export function patchGuideState(patch: StoredState): StoredState {
   const next = { ...read(), ...patch };
   write(next);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(TEACHER_GUIDE_CHANGED));
+  }
   return next;
 }
 
@@ -111,6 +134,12 @@ export function readGuideState(): StoredState {
 export function markAssignmentsReviewed(): void {
   if (read().reviewedAt) return;
   patchGuideState({ reviewedAt: new Date().toISOString() });
+}
+
+/** 안내가 초대 코드를 짚어 보여 줬다 */
+export function markInviteCodeSeen(): void {
+  if (read().inviteCodeSeenAt) return;
+  patchGuideState({ inviteCodeSeenAt: new Date().toISOString() });
 }
 
 export type StartGuideProgress = {
@@ -136,8 +165,12 @@ export async function resolveStartGuideProgress(): Promise<StartGuideProgress> {
 
   const createdClass = classes.length > 0;
 
-  let invited = false;
-  if (primaryClass) {
+  /*
+    학생이 실제로 들어왔거나, 선생님이 초대 코드를 확인했으면 끝난 것으로 본다.
+    학생이 언제 앱을 까는지는 선생님이 정할 수 없다.
+  */
+  let invited = Boolean(stored.inviteCodeSeenAt);
+  if (!invited && primaryClass) {
     try {
       const enrollments = await fetchClassEnrollments(primaryClass.id);
       invited = enrollments.length > 0;

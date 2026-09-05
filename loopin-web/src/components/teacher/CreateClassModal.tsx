@@ -67,8 +67,16 @@ export function CreateClassModal({
     Partial<Record<Weekday, ClassTimeRange>>
   >({});
   const [error, setError] = useState("");
+  /*
+    색상·시간은 **기본값이 이미 들어 있다.** 그래서 「값이 있으면 끝」으로 보면
+    시작 가이드가 두 단계를 그냥 지나쳐 버린다. 선생님이 실제로 만졌는지를 따로 센다.
+  */
+  const [colorTouched, setColorTouched] = useState(false);
+  const [timeTouched, setTimeTouched] = useState(false);
 
   const isEdit = Boolean(editing);
+  /** 시작 가이드가 짚을 자리 — 수정 모달에는 붙이지 않는다 */
+  const guide = !isEdit;
 
   useEffect(() => {
     if (!open) return;
@@ -110,6 +118,8 @@ export function CreateClassModal({
     }
 
     setError("");
+    setColorTouched(false);
+    setTimeTouched(Boolean(editing || preset));
     const t = window.setTimeout(() => nameRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [open, editing, preset]);
@@ -212,7 +222,6 @@ export function CreateClassModal({
   return (
     <div
       className="absolute inset-0 z-50 flex items-center justify-center bg-black/35 p-6"
-      onClick={onClose}
       role="presentation"
     >
       <div
@@ -250,7 +259,7 @@ export function CreateClassModal({
               </span>
               <input
                 ref={nameRef}
-                data-guide="class-name"
+                data-guide={guide ? "class-name" : undefined}
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
@@ -266,7 +275,7 @@ export function CreateClassModal({
                 학년 <span className="text-[#EF4444]">*</span>
               </span>
               <select
-                data-guide="class-grade"
+                data-guide={guide ? "class-grade" : undefined}
                 value={grade}
                 aria-required
                 onChange={(e) => {
@@ -286,7 +295,11 @@ export function CreateClassModal({
               </select>
             </label>
 
-            <fieldset className="flex flex-col gap-2.5">
+            <fieldset
+              className="flex flex-col gap-2.5"
+              data-guide={guide ? "class-color" : undefined}
+              data-guide-done={colorTouched ? "true" : undefined}
+            >
               <legend className="text-[13px] font-semibold text-[#3D4148]">
                 반 색상 <span className="font-normal text-[#9CA3AF]">8색</span>
               </legend>
@@ -300,7 +313,10 @@ export function CreateClassModal({
                       aria-label={theme.label}
                       aria-pressed={selected}
                       title={theme.label}
-                      onClick={() => setThemeId(theme.id)}
+                      onClick={() => {
+                        setThemeId(theme.id);
+                        setColorTouched(true);
+                      }}
                       className="h-10 w-10 rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-[#1AA7F2] focus-visible:ring-offset-2"
                       style={{
                         backgroundColor: theme.class,
@@ -315,21 +331,26 @@ export function CreateClassModal({
             </fieldset>
 
             <ClassScheduleFields
+              guide={guide}
+              timeDone={timeTouched}
               days={days}
               onToggleDay={toggleDay}
               scheduleMode={scheduleMode}
               onScheduleMode={(mode) => {
                 setScheduleMode(mode);
+                setTimeTouched(true);
                 if (error) setError("");
               }}
               unifiedTime={unifiedTime}
               onUnifiedTime={(next) => {
                 setUnifiedTime(next);
+                setTimeTouched(true);
                 if (error) setError("");
               }}
               dayTimes={dayTimes}
               onDayTime={(day, next) => {
                 setDayTimes((prev) => ({ ...prev, [day]: next }));
+                setTimeTouched(true);
                 if (error) setError("");
               }}
             />
@@ -349,7 +370,7 @@ export function CreateClassModal({
             </button>
             <button
               type="submit"
-              data-guide="class-save"
+              data-guide={guide ? "class-save" : undefined}
               className="h-11 rounded-[10px] bg-[#1AA7F2] px-5 text-[14px] font-semibold text-white hover:bg-[#1596d9]"
             >
               {isEdit ? "저장" : "만들기"}

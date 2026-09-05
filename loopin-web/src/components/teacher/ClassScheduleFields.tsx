@@ -24,6 +24,10 @@ type ClassScheduleFieldsProps = {
   onDayTime: (day: Weekday, next: ClassTimeRange) => void;
   /** stacked: 모달 / inline: 반 설정 행 레이아웃 */
   layout?: "stacked" | "inline";
+  /** 시작 가이드가 짚을 자리를 달아 준다 (새 반 만들기 모달에서만) */
+  guide?: boolean;
+  /** 수업 시간을 실제로 만졌는지 — 기본값이 있어서 값만으로는 알 수 없다 */
+  timeDone?: boolean;
 };
 
 /**
@@ -39,6 +43,8 @@ export function ClassScheduleFields({
   dayTimes,
   onDayTime,
   layout = "stacked",
+  guide = false,
+  timeDone = false,
 }: ClassScheduleFieldsProps) {
   const inline = layout === "inline";
 
@@ -144,14 +150,22 @@ export function ClassScheduleFields({
 
   return (
     <>
-      <fieldset className="flex flex-col gap-2.5">
+      <fieldset
+        className="flex flex-col gap-2.5"
+        data-guide={guide ? "class-days" : undefined}
+        data-guide-done={days.length > 0 ? "true" : undefined}
+      >
         <legend className="text-[13px] font-semibold text-[#3D4148]">
           수업 요일 <span className="text-[#EF4444]">*</span>
           <span className="ml-1 font-normal text-[#9CA3AF]">중복 선택 가능</span>
         </legend>
         {dayButtons}
       </fieldset>
-      <fieldset className="flex flex-col gap-3">
+      <fieldset
+        className="flex flex-col gap-3"
+        data-guide={guide ? "class-time" : undefined}
+        data-guide-done={timeDone ? "true" : undefined}
+      >
         <legend className="text-[13px] font-semibold text-[#3D4148]">
           수업 시간
         </legend>

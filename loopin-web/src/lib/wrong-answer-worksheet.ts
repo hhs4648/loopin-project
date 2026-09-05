@@ -1,4 +1,4 @@
-import { stripBrackets } from "@/lib/problem-bank";
+import { stripBrackets, stripMeaningParens } from "@/lib/problem-bank";
 import { extractCloze } from "@/lib/word-cloze";
 import { buildContentSnapshot } from "@/lib/sync/content-snapshot";
 import type { SavedProblemSet } from "@/lib/problem-sets";
@@ -119,7 +119,7 @@ function buildWordItem(
   const category: WorksheetCategory = "단어";
   const label = typeLabelFor(typeKey, category);
   const english = stripBrackets(word.english);
-  const korean = stripBrackets(word.korean);
+  const korean = stripMeaningParens(stripBrackets(word.korean));
 
   if (typeKey === "match" || typeKey === "listen" || typeKey === "choice") {
     const distractors = pool

@@ -26,7 +26,7 @@ export type ClassAssignment = {
   deadlineDate: string;
   /** HH:MM · 마감 날짜의 마감 시간 */
   deadlineTime: string;
-  /** true면 "다음 수업 전까지"로 지정된 마감 — deadlineDate/deadlineTime은 다음 수업 시작 시각으로 계산된 값 */
+  /** true면 "다음 수업 전까지"로 지정된 마감 — deadlineDate/deadlineTime은 다음 수업 시작 1분 전 */
   deadlineUntilNextLesson?: boolean;
   /**
    * ISO 시각 · **학생 앱에 언제부터 보일지**. 「수업일 + 그 반의 수업 종료 시각」.
@@ -312,7 +312,7 @@ export function formatAssignmentSchedule(assignment: ClassAssignment): string {
     return start;
   }
   if (assignment.deadlineUntilNextLesson) {
-    return `${start} ≫ ${formatLessonDateKo(assignment.deadlineDate)} · 다음 수업 전까지`;
+    return `${start} ≫ ${formatLessonDateKo(assignment.deadlineDate)} ${assignment.deadlineTime} · 다음 수업 전까지`;
   }
   if (assignment.deadlineDate !== assignment.lessonDate) {
     return `${start} ≫ ${formatLessonDateKo(assignment.deadlineDate)} ${assignment.deadlineTime}`;

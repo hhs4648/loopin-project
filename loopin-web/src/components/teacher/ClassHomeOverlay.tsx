@@ -39,9 +39,10 @@ import {
   type SavedProblemSet,
 } from "@/lib/problem-sets";
 import {
-  buildUnitPartProgress,
   continueUnitHref,
+  visibleUnitPartProgress,
 } from "@/lib/problem-set-parts";
+import { dismissUnitProgress } from "@/lib/unit-progress-dismiss";
 import { CopyToast, copyToClipboard } from "@/components/teacher/CopyToast";
 
 /** SVG 히어로 카드 (담당 반 색으로 다시 칠함) */
@@ -182,6 +183,7 @@ export function ClassHomeOverlay({
   const [focused, setFocused] = useState(false);
   const [justApplied, setJustApplied] = useState(false);
   const [copyToastTick, setCopyToastTick] = useState(0);
+  const [progressTick, setProgressTick] = useState(0);
 
   useEffect(() => {
     setDraftTitle(savedTitle);
@@ -263,13 +265,13 @@ export function ClassHomeOverlay({
   const unitProgress = useMemo(
     () =>
       classId
-        ? buildUnitPartProgress(
+        ? visibleUnitPartProgress(
             problemSets,
             assignments.map((view) => view.assignment),
             classId,
           )
         : [],
-    [problemSets, assignments, classId],
+    [problemSets, assignments, classId, progressTick],
   );
   return (
     <div className="pointer-events-none absolute inset-0 z-[22]">
@@ -647,7 +649,7 @@ export function ClassHomeOverlay({
               진행 중인 단원
             </h3>
             <span className="min-w-0 truncate text-[11px] font-medium text-[#9A958E]">
-              이어서 내면 다음 파트가 미리 골라져요
+              나눠 낸 단원은 여기서 이어서 내요
             </span>
           </div>
           <ul className="flex flex-1 flex-col gap-1 overflow-y-auto px-5 pb-3">
@@ -696,6 +698,19 @@ export function ClassHomeOverlay({
                 >
                   이어서 내기 →
                 </Link>
+                <button
+                  type="button"
+                  aria-label={`${unit.unitTitle} 이어서 내기 삭제`}
+                  title="이어서 내기 목록에서 빼요. 같은 단원을 다시 나눠 내면 다시 보여요."
+                  onClick={() => {
+                    if (!classId) return;
+                    dismissUnitProgress(classId, unit.unitKey);
+                    setProgressTick((tick) => tick + 1);
+                  }}
+                  className="flex h-7 shrink-0 items-center rounded-[8px] border border-[#E0E4EA] bg-white px-2.5 text-[11px] font-semibold text-[#6B6B6B] outline-none transition-colors hover:border-[#C9CCD2] hover:bg-[#F7F7F7] focus-visible:ring-2 focus-visible:ring-[#1AA7F2]"
+                >
+                  삭제
+                </button>
               </li>
             ))}
           </ul>

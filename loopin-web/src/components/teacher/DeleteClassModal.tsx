@@ -35,12 +35,7 @@ export function DeleteClassModal({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="닫기"
-        className="absolute inset-0 bg-black/35"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/35" aria-hidden />
       <div
         role="dialog"
         aria-modal="true"

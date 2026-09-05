@@ -3,15 +3,13 @@ import type {
   AssignGroup,
   AssignResult,
 } from "@/components/teacher/AssignAssignmentModal";
-import {
-  upsertAssignmentsForProblemSet,
-  type CreateClassAssignmentInput,
-} from "@/lib/class-assignments";
+import { upsertAssignmentsForProblemSet } from "@/lib/class-assignments";
 import {
   PART_CATEGORIES,
   partSlice,
   type PartCategory,
 } from "@/lib/problem-set-parts";
+import { CUSTOM_PROBLEM_TYPE_OPTIONS } from "@/lib/ai/sentence-problem-types";
 import {
   appendProblemSet,
   createProblemSetTitle,
@@ -19,6 +17,7 @@ import {
   persistProblemSets,
   updateProblemSet,
   type CreateProblemSetInput,
+  type CustomAssignmentDraft,
   type ProblemSetParts,
   type SavedProblemSet,
 } from "@/lib/problem-sets";
@@ -210,44 +209,164 @@ export async function publishProblemsAssign(params: {
   }
 }
 
-/** 사용자 지정 세트 → 과제 부여 확정 (칩 없음, 묶음 1개) */
+/**
+ * 사용자 지정 세트 → 과제 부여 확정.
+ *
+ * 칩이 없거나 **한 묶음**이면 목록의 원본 세트를 그대로 부여한다.
+ * 단어·문장을 **다른 날**에 올리면 묶음마다 hidden 복제본을 만들어 따로 부여하고,
+ * 목록 카드(원본)는 그대로 둔다.
+ */
 export async function publishCustomAssign(params: {
   problemSet: SavedProblemSet;
-  assignments: CreateClassAssignmentInput[];
+  result: AssignResult;
 }): Promise<PublishAssignResult> {
-  const { problemSet, assignments } = params;
+  const { problemSet, result } = params;
+  const groups = result.groups;
   try {
-    const problemSetId = problemSet.id;
-    const nextAssignments = upsertAssignmentsForProblemSet(
-      problemSetId,
-      assignments.map((item) => ({
-        ...item,
+    const classIds = [
+      ...new Set(groups.flatMap((group) => group.assignments.map((item) => item.classId))),
+    ];
+    if (groups.length <= 1) {
+      const assignments = groups[0]?.assignments ?? [];
+      const problemSetId = problemSet.id;
+      const nextAssignments = upsertAssignmentsForProblemSet(
         problemSetId,
-      })),
-    );
-    const assignedClassIds = assignments.map((item) => item.classId);
-    const nextSets = updateProblemSet(loadProblemSets(), problemSetId, {
-      assignedClassIds,
+        assignments.map((item) => ({
+          ...item,
+          problemSetId,
+        })),
+      );
+      const nextSets = updateProblemSet(loadProblemSets(), problemSetId, {
+        assignedClassIds: classIds.length > 0 ? classIds : problemSet.assignedClassIds,
+      });
+      persistProblemSets(nextSets);
+      const saved =
+        nextSets.find((item) => item.id === problemSetId) ?? problemSet;
+      const publishResult = await publishProblemSetAndAssignments({
+        problemSet: saved,
+        assignments: nextAssignments.filter(
+          (item) => item.problemSetId === problemSetId,
+        ),
+      });
+      if (!publishResult.ok) {
+        return {
+          ok: false,
+          message:
+            publishResult.message ||
+            "서버에 과제를 올리지 못했어요. 다시 시도해 주세요.",
+        };
+      }
+      return { ok: true };
+    }
+
+    for (const group of groups) {
+      const slice = sliceCustomSetForGroup(problemSet, group, result);
+      const created = appendProblemSet({
+        ...slice,
+        hiddenFromLibrary: true,
+      });
+      const nextAssignments = upsertAssignmentsForProblemSet(
+        created.id,
+        group.assignments.map((item) => ({
+          ...item,
+          problemSetId: created.id,
+        })),
+      );
+      const publishResult = await publishProblemSetAndAssignments({
+        problemSet: created,
+        assignments: nextAssignments.filter(
+          (item) => item.problemSetId === created.id,
+        ),
+      });
+      if (!publishResult.ok) {
+        return {
+          ok: false,
+          message:
+            publishResult.message ||
+            "서버에 과제를 올리지 못했어요. 다시 시도해 주세요.",
+        };
+      }
+    }
+
+    const nextSets = updateProblemSet(loadProblemSets(), problemSet.id, {
+      assignedClassIds: classIds.length > 0 ? classIds : problemSet.assignedClassIds,
     });
     persistProblemSets(nextSets);
-    const saved =
-      nextSets.find((item) => item.id === problemSetId) ?? problemSet;
-    const publishResult = await publishProblemSetAndAssignments({
-      problemSet: saved,
-      assignments: nextAssignments.filter(
-        (item) => item.problemSetId === problemSetId,
-      ),
-    });
-    if (!publishResult.ok) {
-      return {
-        ok: false,
-        message:
-          publishResult.message ||
-          "서버에 과제를 올리지 못했어요. 다시 시도해 주세요.",
-      };
-    }
     return { ok: true };
   } catch {
     return { ok: false, message: "저장하지 못했어요. 다시 시도해 주세요." };
   }
+}
+
+function sliceCustomSetForGroup(
+  source: SavedProblemSet,
+  group: AssignGroup,
+  result: AssignResult,
+): CreateProblemSetInput {
+  const includeWords = group.chips.some((chip) => chip.category === "words");
+  const includeSentences = group.chips.some(
+    (chip) => chip.category === "sentences",
+  );
+  const includeGrammar = group.chips.some((chip) => chip.category === "grammar");
+  const problemTypes = {
+    words: includeWords
+      ? (result.types.words ?? source.problemTypes.words)
+      : [],
+    sentences: includeSentences
+      ? (result.types.sentences ?? source.problemTypes.sentences)
+      : [],
+    grammar: includeGrammar
+      ? (result.types.grammar ?? source.problemTypes.grammar)
+      : [],
+  };
+  return {
+    grade: source.grade,
+    textbook: source.textbook,
+    unit: source.unit,
+    assignedClassIds: group.assignments.map((item) => item.classId),
+    items: {
+      words: includeWords ? source.items.words : [],
+      sentences: includeSentences ? source.items.sentences : [],
+      grammar: includeGrammar ? source.items.grammar : [],
+    },
+    problemTypes,
+    customDraft: sliceCustomDraft(
+      source.customDraft,
+      includeWords,
+      includeSentences,
+      problemTypes.words,
+      problemTypes.sentences,
+    ),
+  };
+}
+
+function sliceCustomDraft(
+  draft: CustomAssignmentDraft | undefined,
+  includeWords: boolean,
+  includeSentences: boolean,
+  wordTypeLabels: string[],
+  sentenceTypeLabels: string[],
+): CustomAssignmentDraft | undefined {
+  if (!draft) return undefined;
+  const wordLabels = new Set(wordTypeLabels);
+  const sentenceLabels = new Set(sentenceTypeLabels);
+  const typeOn = { ...draft.typeOn };
+  for (const option of CUSTOM_PROBLEM_TYPE_OPTIONS) {
+    if (option.category === "word") {
+      typeOn[option.id] =
+        includeWords && wordLabels.has(option.label) && draft.typeOn[option.id];
+    } else {
+      typeOn[option.id] =
+        includeSentences &&
+        sentenceLabels.has(option.label) &&
+        draft.typeOn[option.id];
+    }
+  }
+  return {
+    ...draft,
+    typeOn,
+    selectedIds: includeWords ? draft.selectedIds : [],
+    analyses: includeWords ? draft.analyses : {},
+    sentenceDrafts: includeSentences ? draft.sentenceDrafts : {},
+  };
 }

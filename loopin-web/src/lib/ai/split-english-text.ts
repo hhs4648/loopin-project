@@ -11,13 +11,21 @@ export type ParsedSentence = {
   tokens: SentenceToken[];
 };
 
+/**
+ * 마침표·물음표·느낌표 뒤에서 문장을 가른다.
+ * 뒤에 칸이 없어도 글자가 이어지면 가른다 (`A.B.` → `A.` / `B.`).
+ * `3.14`처럼 숫자 소수점은 그대로 둔다.
+ */
+const ENGLISH_SENTENCE_SPLIT = /(?<=[.!?])(?:\s+|(?=[A-Za-z가-힣]))|\n+/;
+const MEANING_SENTENCE_SPLIT = /(?<=[.!?。？！])(?:\s+|(?=[A-Za-z가-힣]))|\n+/;
+
 /** 영어 텍스트를 문장 단위로 분리 (간단한 규칙 · 목업용) */
 export function splitIntoSentences(raw: string): string[] {
   const trimmed = raw.replace(/\r\n/g, "\n").trim();
   if (!trimmed) return [];
 
   const parts = trimmed
-    .split(/(?<=[.!?])\s+|\n+/)
+    .split(ENGLISH_SENTENCE_SPLIT)
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -30,7 +38,7 @@ export function splitIntoMeaningSentences(raw: string): string[] {
   if (!trimmed) return [];
 
   const parts = trimmed
-    .split(/(?<=[.!?。？！])\s+|\n+/)
+    .split(MEANING_SENTENCE_SPLIT)
     .map((s) => s.trim())
     .filter(Boolean);
 

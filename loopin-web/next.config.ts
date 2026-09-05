@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
+  // 개발 중 화면 위 N·Issues 배지가 시안을 가린다. 오류는 터미널·콘솔에서 본다.
+  devIndicators: false,
   turbopack: {
     // 상위 loopin-project 폴더와 lockfile이 섞여 루트를 잘못 잡지 않게 고정
     root: path.join(__dirname),

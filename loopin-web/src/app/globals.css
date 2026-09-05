@@ -12,17 +12,32 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+  다크 모드로 색을 뒤집지 않는다. 교사 웹에는 다크 테마가 없어서 배경만 검게
+  바뀌면 색을 직접 지정하지 않은 글자가 흰 패널 위에서 안 보인다
+  (맥북은 다크 모드가 기본인 경우가 많다). 브라우저 기본 폼 색도 함께 고정한다.
+*/
+:root {
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: "Pretendard", system-ui, sans-serif;
+}
+
+/*
+  Next.js 개발 오버레이(N 배지·Issues 패널)는 시안을 가린다.
+  배지는 next.config.ts `devIndicators: false`로 끄고, 이슈가 있어도
+  화면 위 패널은 숨긴다. 오버레이가 body 스크롤을 잠그지 않게 되돌린다.
+*/
+nextjs-portal {
+  display: none !important;
+}
+body:has(nextjs-portal) {
+  overflow: auto !important;
+  padding-right: 0 !important;
 }
 
 /* uiux.md §1.1 — 스크롤 가능, 스크롤바는 항상 숨김 */
@@ -37,4 +52,53 @@ body {
   height: 0;
 }
 
+/* 예외: 문제 제출 교과서 범위 드롭다운(학년·교과서·단원)은 스크롤바를 보여 준다 */
+.dropdown-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #c5cad3 #f3f4f6;
+}
 
+.dropdown-scrollbar::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+  height: 8px;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 0 10px 10px 0;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-thumb {
+  background: #c5cad3;
+  border-radius: 8px;
+}
+
+.dropdown-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+
+
+/*
+  모달이 열려 있는 동안에는 시작 가이드 카드를 감춘다.
+
+  캔버스를 `transform`으로 축소하면서 캔버스가 stacking context가 됐다. 그 안의
+  모달은 z-index를 아무리 올려도 캔버스 밖 요소를 넘지 못한다 — 레이아웃에 얹힌
+  가이드 카드가 모달 딤 위로 떠 보이던 이유다. 카드를 비켜 주면 축소 이전과 같다.
+  코치마크(짚어 주는 말풍선)는 모달 안 입력칸을 가리켜야 하므로 그대로 둔다.
+*/
+body:has([role="dialog"]) [data-guide-panel],
+/*
+  코치마크가 떠 있는 동안에도 감춘다. 둘 다 오른쪽 아래에 붙어 있어서, 화면
+  오른쪽 아래를 짚을 때 말풍선과 카드가 겹쳐 서로를 가렸다.
+*/
+body:has([data-guide-ui]) [data-guide-panel] {
+  display: none;
+}
+
+/* 시작 가이드: 막힌 곳을 눌렀을 때 「여기요」 하고 짚은 자리를 깜빡인다 */
+@keyframes guide-nudge {
+  0%, 50%, 100% { outline-color: #1AA7F2; }
+  25%, 75% { outline-color: #FFB020; }
+}

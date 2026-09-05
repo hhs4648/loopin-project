@@ -120,16 +120,10 @@ export function ClassPeriodModal({
           ? "absolute inset-0 z-[60] bg-black/35 p-6"
           : "fixed inset-0 z-[80] p-4"
       }`}
-      onClick={isFrameOverlay ? onClose : undefined}
       role="presentation"
     >
       {!isFrameOverlay ? (
-        <button
-          type="button"
-          aria-label="닫기"
-          className="absolute inset-0 bg-black/35"
-          onClick={onClose}
-        />
+        <div className="absolute inset-0 bg-black/35" aria-hidden />
       ) : null}
       <div
         role="dialog"
@@ -164,6 +158,7 @@ export function ClassPeriodModal({
             </span>
             <input
               ref={nameRef}
+              data-guide={isFrameOverlay ? "period-name" : undefined}
               value={periodName}
               onChange={(e) => {
                 setPeriodName(e.target.value);
@@ -178,6 +173,8 @@ export function ClassPeriodModal({
           {/* 개강일 · 종강일 */}
           <div className="flex flex-col items-stretch gap-2">
             <DateField
+              guideAnchor={isFrameOverlay ? "period-start" : undefined}
+              guideDone={Boolean(startDate)}
               label="개강일"
               required
               value={startDate}
@@ -191,6 +188,8 @@ export function ClassPeriodModal({
             />
 
             <DateField
+              guideAnchor={isFrameOverlay ? "period-end" : undefined}
+              guideDone={Boolean(endDate)}
               label="종강일"
               value={endDate}
               placeholder="미정"
@@ -225,6 +224,7 @@ export function ClassPeriodModal({
             </button>
             <button
               type="submit"
+              data-guide={isFrameOverlay ? "period-save" : undefined}
               className="h-10 min-w-[72px] rounded-[10px] bg-[#1AA7F2] px-5 text-[14px] font-bold text-white hover:bg-[#1596d9]"
             >
               확인
@@ -237,6 +237,8 @@ export function ClassPeriodModal({
 }
 
 function DateField({
+  guideAnchor,
+  guideDone,
   label,
   value,
   placeholder,
@@ -249,6 +251,8 @@ function DateField({
   onClear,
   onClose,
 }: {
+  guideAnchor?: string;
+  guideDone?: boolean;
   label: string;
   value: string;
   placeholder: string;
@@ -262,7 +266,11 @@ function DateField({
   onClose: () => void;
 }) {
   return (
-    <div className="relative flex flex-col gap-1.5">
+    <div
+      className="relative flex flex-col gap-1.5"
+      data-guide={guideAnchor}
+      data-guide-done={guideDone ? "true" : undefined}
+    >
       <span className="text-[13px] font-semibold text-[#3D4148]">
         {label}
         {required ? <span className="text-[#EF4444]"> *</span> : null}

@@ -32,6 +32,21 @@ export function classTabHref(classId: string, tab: ClassTabId): string {
   return tab === "home" ? base : `${base}?tab=${tab}`;
 }
 
+/**
+ * 과제를 낸 뒤 열어 줄 반 홈.
+ * 반이 여러 개면 `preferredId`(보고 있던 탭·이어서 내기 기준 반)를 우선한다.
+ */
+export function assignedClassHomeHref(
+  classIds: readonly string[],
+  preferredId?: string | null,
+): string | null {
+  const ids = [...new Set(classIds.filter(Boolean))];
+  if (ids.length === 0) return null;
+  const pick =
+    preferredId && ids.includes(preferredId) ? preferredId : ids[0]!;
+  return classTabHref(pick, "home");
+}
+
 export function classTabAsset(tab: ClassTabId): string {
   return CLASS_TABS.find((t) => t.id === tab)?.asset ?? "class-home.svg";
 }

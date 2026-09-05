@@ -769,7 +769,6 @@ function HaksupCatalogModal({
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/35 p-6"
-      onClick={onClose}
       role="presentation"
     >
       <div
@@ -777,7 +776,7 @@ function HaksupCatalogModal({
         aria-modal="true"
         aria-label="학습 제공 단어장"
         onClick={(event) => event.stopPropagation()}
-        className="flex h-[min(620px,88vh)] w-[560px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex h-[min(620px,88%)] w-[560px] max-w-[calc(100%-32px)] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[#F0F1F3] px-6 py-5">
           <div className="min-w-0">

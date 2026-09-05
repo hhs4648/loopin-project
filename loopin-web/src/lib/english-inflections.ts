@@ -226,6 +226,66 @@ function formsOfOneWord(word: string): string[] {
   return [...out];
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 표제어 자리 표시. 본문에는 아무 단어나 들어가도 같은 표현으로 본다.
+ * `keep ~ from ~`, `keep 'A' from 'B'`, `keep A from B`
+ */
+const LEMMA_SLOT_TOKEN =
+  /^(?:[~～〜]+(?:-?ing)?|[''"‘’“”][A-Za-z][''"‘’“”]|[A-DXYZ]|sb\.?|sth\.?)$/i;
+
+export function isLemmaSlotToken(token: string): boolean {
+  return LEMMA_SLOT_TOKEN.test(token.trim());
+}
+
+export function lemmaHasSlots(lemma: string): boolean {
+  return lemma
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .some(isLemmaSlotToken);
+}
+
+/**
+ * 자리 표시가 있는 표제어를 본문에서 찾기 위한 패턴.
+ * 가운데 `~`는 한 단어 이상, 맨 뒤 `~`는 없어도 되고 있으면 한 단어까지.
+ */
+export function lemmaSlotPattern(lemma: string): string | null {
+  const tokens = lemma.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0 || !tokens.some(isLemmaSlotToken)) return null;
+
+  const fill = "[A-Za-z0-9][A-Za-z0-9'-]*";
+  const chunks: string[] = [];
+  let inflectedLiteral = false;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    const last = index === tokens.length - 1;
+    const atStart = chunks.length === 0;
+
+    if (isLemmaSlotToken(token)) {
+      if (last) {
+        chunks.push(`(?:\\s+${fill})?`);
+      } else if (atStart) {
+        chunks.push(fill);
+      } else {
+        chunks.push(`\\s+${fill}(?:\\s+${fill})*?`);
+      }
+      continue;
+    }
+
+    const forms = inflectedLiteral ? [token] : formsOfOneWord(token);
+    inflectedLiteral = true;
+    const alt = [...new Set(forms.map((form) => escapeRegExp(form)))].join("|");
+    const body = forms.length > 1 ? `(?:${alt})` : alt;
+    chunks.push(atStart ? `\\b${body}` : `\\s+${body}`);
+  }
+  chunks.push("\\b");
+  return chunks.join("");
+}
+
 /** 표제어와 그 활용형. 여러 단어면 앞 단어만 굴절한다 (`be related to` → `was related to`). */
 export function englishSurfaceForms(lemma: string): string[] {
   const words = lemma.trim().split(/\s+/).filter(Boolean);
@@ -241,9 +301,14 @@ export function englishSurfaceForms(lemma: string): string[] {
 }
 
 export function isInflectedFormOf(surface: string, lemma: string): boolean {
-  const token = surface.trim().replace(/\s+/g, " ").toLowerCase();
+  const token = surface.trim().replace(/\s+/g, " ");
   if (!token || !lemma.trim()) return false;
+  const slot = lemmaSlotPattern(lemma);
+  if (slot) {
+    return new RegExp(`^(?:${slot})$`, "i").test(token);
+  }
+  const folded = token.toLowerCase();
   return englishSurfaceForms(lemma).some(
-    (form) => form.replace(/\s+/g, " ").toLowerCase() === token,
+    (form) => form.replace(/\s+/g, " ").toLowerCase() === folded,
   );
 }

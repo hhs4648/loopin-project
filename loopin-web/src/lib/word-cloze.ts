@@ -1,4 +1,8 @@
-import { englishSurfaceForms, isInflectedFormOf } from "@/lib/english-inflections";
+import {
+  englishSurfaceForms,
+  isInflectedFormOf,
+  lemmaSlotPattern,
+} from "@/lib/english-inflections";
 import { stripBrackets } from "@/lib/problem-bank";
 
 function escapeRegExp(text: string): string {
@@ -15,12 +19,23 @@ export function findExistingCloze(
   return matches[0]?.[1]?.trim() || null;
 }
 
-function findSurfaceInSentence(
+export function findSurfaceInSentence(
   sentence: string,
   word: string,
 ): { start: number; end: number; surface: string } | null {
   const target = stripBrackets(word).trim();
   if (!sentence.trim() || !target) return null;
+
+  const slot = lemmaSlotPattern(target);
+  if (slot) {
+    const match = sentence.match(new RegExp(slot, "i"));
+    if (!match?.[0] || match.index == null) return null;
+    return {
+      start: match.index,
+      end: match.index + match[0].length,
+      surface: match[0],
+    };
+  }
 
   let best: { start: number; end: number; surface: string } | null = null;
   for (const form of englishSurfaceForms(target)) {
@@ -39,6 +54,11 @@ function findSurfaceInSentence(
     }
   }
   return best;
+}
+
+/** 본문·예문에 표제어나 활용형이 나오는지. 단원 단어 추적에 쓴다. */
+export function wordAppearsInText(text: string, word: string): boolean {
+  return findSurfaceInSentence(text, word) !== null;
 }
 
 /**

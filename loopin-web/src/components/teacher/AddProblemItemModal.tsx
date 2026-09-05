@@ -68,7 +68,7 @@ const KIND_META: Record<
     submit: "단어 추가",
     editSubmit: "저장",
     hint: "예문에 같은 단어나 활용형(held 등)이 있으면 빈칸이 자동으로 생겨요.",
-    editHint: "교과서·직접 추가 단어를 수정해요. 원본 JSON은 바뀌지 않아요.",
+    editHint: "",
   },
   sentence: {
     title: "본문 추가",
@@ -305,14 +305,13 @@ export function AddProblemItemModal({
   return (
     <div
       className="fixed inset-0 z-[95] flex items-center justify-center bg-black/35 p-4"
-      onClick={onClose}
       role="presentation"
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[92vh] w-full max-w-[480px] flex-col overflow-hidden rounded-[18px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className="flex max-h-[92%] w-full max-w-[480px] flex-col overflow-hidden rounded-[18px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#F0F1F3] px-5 py-4">
@@ -326,9 +325,11 @@ export function AddProblemItemModal({
             <p className="mt-0.5 text-[12px] font-medium text-[#8B8F96]">
               {scope.grade} · {scope.textbook} · {scope.unit}
             </p>
-            <p className="mt-1 text-[12px] text-[#6B7280]">
-              {isEdit ? meta.editHint : meta.hint}
-            </p>
+            {(isEdit ? meta.editHint : meta.hint) ? (
+              <p className="mt-1 text-[12px] text-[#6B7280]">
+                {isEdit ? meta.editHint : meta.hint}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

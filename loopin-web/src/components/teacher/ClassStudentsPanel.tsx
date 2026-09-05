@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { clientToFrame } from "@/lib/frame-scale";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
 import type { ClassStudent } from "@/lib/class-students";
 import type { StudentProgressRow } from "@/lib/sync/types";
@@ -67,18 +68,27 @@ export function ClassStudentsPanel({
       setMenuPos(null);
       return;
     }
+    /*
+      메뉴는 `position: fixed`인데, 캔버스가 축소돼 있으면 `fixed`의 기준이
+      뷰포트가 아니라 **캔버스**다(`FitToViewport` 주석 참고). 화면 좌표를 그대로
+      넣으면 축소 배율만큼 어긋나므로 캔버스 좌표로 바꿔서 쓴다.
+    */
     const rect = button.getBoundingClientRect();
+    const topLeft = clientToFrame(rect.left, rect.top);
+    const bottomRight = clientToFrame(rect.right, rect.bottom);
+    const limitW = topLeft.box?.width ?? window.innerWidth;
+    const limitH = topLeft.box?.height ?? window.innerHeight;
     const menuWidth = 120;
     const menuHeight = 84;
     const gap = 4;
     const left = Math.min(
-      Math.max(8, rect.right - menuWidth),
-      window.innerWidth - menuWidth - 8,
+      Math.max(8, bottomRight.x - menuWidth),
+      limitW - menuWidth - 8,
     );
-    const openUp = rect.bottom + gap + menuHeight > window.innerHeight - 8;
+    const openUp = bottomRight.y + gap + menuHeight > limitH - 8;
     const top = openUp
-      ? Math.max(8, rect.top - gap - menuHeight)
-      : rect.bottom + gap;
+      ? Math.max(8, topLeft.y - gap - menuHeight)
+      : bottomRight.y + gap;
     setMenuPos({ top, left });
     setMenuOpenId(studentId);
   }

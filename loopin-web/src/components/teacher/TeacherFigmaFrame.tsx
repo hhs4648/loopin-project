@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FitToViewport } from "@/components/figma/FitToViewport";
 import type { FigmaHotspot } from "@/components/figma/types";
 import { AssignedClassesPanel } from "@/components/teacher/AssignedClassesPanel";
 import { AssignAssignmentPanel } from "@/components/teacher/AssignAssignmentPanel";
@@ -887,7 +888,12 @@ export function TeacherFigmaFrame({
     !assignAssignment;
 
   return (
-    <main className="no-scrollbar flex min-h-screen items-center justify-center overflow-auto bg-white">
+    /*
+      가운데 정렬을 `justify-center`가 아니라 `FitToViewport`의 `margin: auto`로
+      하는 이유: 넘쳤을 때 `justify-center`는 왼쪽·위가 스크롤로 닿지 않는다.
+    */
+    <main className="no-scrollbar flex min-h-screen overflow-auto bg-white">
+      <FitToViewport width={width} height={height}>
       <div
         className="relative shrink-0"
         style={{ width, minWidth: width, height, minHeight: height }}
@@ -1164,6 +1170,7 @@ export function TeacherFigmaFrame({
           onConfirm={handlePeriodConfirm}
         />
       </div>
+      </FitToViewport>
     </main>
   );
 }
