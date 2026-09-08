@@ -240,6 +240,26 @@ export const GUIDE_TOURS: Record<StartGuideStepId, GuideTour> = {
         body: "「분할하기」를 누르면 2·3·4 등분이 나옵니다. 나누면 목록 위에 파트 줄이 생기고 그중 하나만 이번에 나가요. 나눈 동안에는 문항 체크가 파트에 맞춰 고정됩니다. 나머진 반 홈 「이어서 내기」로 다음 파트를 고를 수 있어요. 한 번에 다 내려면 그냥 두시면 돼요.",
         advance: "optional",
       },
+      /*
+        **문장·문법도 짚는다.** 「문제 구성」은 단어·문장·문법 세 갈래인데 예전에는
+        단어 쪽(분할하기)만 안내하고 끝나서, 문장이 왜 비어 있는지·문법을 어디서
+        넣는지 알 길이 없었다. 둘 다 **지금은 비어 있는 게 정상**이라 더 그렇다.
+        둘 다 건너뛸 수 있게 둔다 — 읽고 지나가는 안내다.
+      */
+      {
+        id: "sentences",
+        anchor: "problem-sentences",
+        title: "문장은 본문에서 만들어져요",
+        body: "교과서 본문은 미리 들어 있지 않아요. 3번 「본문」에 붙여 넣고 「문장으로 나누기」를 누르면 여기에 문장이 쌓입니다. 한 문장씩 넣고 싶으면 「+ 본문 추가」를 쓰세요.",
+        advance: "optional",
+      },
+      {
+        id: "grammar",
+        anchor: "problem-grammar",
+        title: "문법은 직접 넣어 쓰세요",
+        body: "준비된 문법 문항이 있는 단원은 아직 적어요. 「+ 문법 추가」로 O/X 문장과 틀린 부분·해설을 넣으면 그 단원에 쌓이고, 다음에 같은 단원을 고를 때도 그대로 있어요.",
+        advance: "optional",
+      },
       {
         id: "submit",
         anchor: "problem-submit",
@@ -268,6 +288,55 @@ export const GUIDE_TOURS: Record<StartGuideStepId, GuideTour> = {
     ],
   },
 };
+
+/**
+ * 받는 반이 비어 있을 때 말풍선·구멍·클릭 허용을 화면 상태에 맞춘다.
+ *
+ * 안내 중에는 짚은 곳만 눌리므로, 반이 없으면 「다음」만 꺼 두면 갇힌다.
+ * - 반 자체가 없음 → 반 만들기 단계로 돌려보낸다
+ * - 학년만 안 맞음 → 교과서 범위에서 학년을 바꿀 수 있게 구멍을 넓힌다
+ */
+export type GuideStopView = {
+  title: string;
+  body: string;
+  notReadyLabel?: string;
+  measureAnchors: string[];
+  allowAnchors: string[];
+  primaryAction?: "need-class";
+};
+
+export function guideStopView(
+  stop: GuideStop,
+  el: HTMLElement | null,
+): GuideStopView {
+  const empty = el?.dataset.guideEmpty;
+  if (stop.anchor === "problem-classes" && empty === "none") {
+    return {
+      title: "먼저 반을 만들어 주세요",
+      body: "과제를 받을 반이 아직 없어요. 반을 만들면 여기에 나타납니다.",
+      notReadyLabel: "반을 먼저 만들어 주세요",
+      measureAnchors: [stop.anchor],
+      allowAnchors: [],
+      primaryAction: "need-class",
+    };
+  }
+  if (stop.anchor === "problem-classes" && empty === "mismatch") {
+    return {
+      title: "학년을 반에 맞게 바꿔 주세요",
+      body: "지금 고른 학년에 해당하는 반이 없어요. 위 「교과서 범위」에서 학년을 바꾸면 반이 나타납니다.",
+      notReadyLabel: "학년을 바꾸면 반이 나타나요",
+      measureAnchors: ["problem-range", stop.anchor],
+      allowAnchors: ["problem-range"],
+    };
+  }
+  return {
+    title: stop.title,
+    body: stop.body,
+    notReadyLabel: stop.notReadyLabel,
+    measureAnchors: [stop.anchor],
+    allowAnchors: [],
+  };
+}
 
 /** 지금 화면에 그 요소가 있나 */
 function anchorEl(anchor: string): HTMLElement | null {

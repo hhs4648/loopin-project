@@ -74,6 +74,8 @@ import {
 } from "@/lib/problem-set-parts";
 import {
   type TeacherClass,
+  TEACHER_CLASSES_CHANGED,
+  isMiddleSchoolGrade,
   isMixedGrade,
   loadTeacherClasses,
 } from "@/lib/teacher-classes";
@@ -104,6 +106,13 @@ import { assignedClassHomeHref } from "@/lib/class-tabs";
 import { loadUnitPassage, saveUnitPassage } from "@/lib/unit-passages";
 
 const GRADE_OPTIONS = ["중1", "중2", "중3"] as const;
+
+/** 담당 반 학년에 맞춰 교과서 범위를 연다. 항상 중1로 열면 중2·중3 반이 받는 반에서 빠진다. */
+function defaultTextbookGrade(): (typeof GRADE_OPTIONS)[number] {
+  const hit = loadTeacherClasses().find((cls) => isMiddleSchoolGrade(cls.grade));
+  /* `cls.grade`는 그냥 문자열이라 그대로는 못 쓴다 — 목록에 있는 값일 때만 받는다 */
+  return GRADE_OPTIONS.find((grade) => grade === hit?.grade) ?? GRADE_OPTIONS[0];
+}
 
 /** 중학 영어 교과서 (출판사·저자) */
 const BASE_TEXTBOOK_OPTIONS = [
@@ -476,6 +485,7 @@ function TypeSelectSection({
   partCountControl,
   partTabs,
   extraFilters,
+  guideAnchor,
   children,
 }: {
   title: string;
@@ -508,6 +518,8 @@ function TypeSelectSection({
   partTabs?: ReactNode;
   /** 유형 옆 필터 — 단어 「기초단어」처럼 목록만 좁히는 체크 */
   extraFilters?: ReactNode;
+  /** 시작 가이드가 이 갈래(단어/문장/문법)를 짚을 자리 */
+  guideAnchor?: string;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(true);
@@ -515,7 +527,7 @@ function TypeSelectSection({
     showItems && totalCount !== undefined && totalCount > 0 && onToggleAll;
 
   return (
-    <div className="py-3.5">
+    <div className="py-3.5" data-guide={guideAnchor}>
       <div className="mb-2 flex items-center gap-2">
         <span className="text-[13px] font-semibold text-[#16181D]">{title}</span>
         {/* 「n/m개 출제」 대신 **이번에 나갈 수**만. 파트를 고르면 총계는 아래 안내문에만 남는다 */}
@@ -1531,7 +1543,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
         unit: partPreset.unit,
       };
     }
-    const grade = GRADE_OPTIONS[0];
+    const grade = defaultTextbookGrade();
     return {
       grade,
       book: getTextbookOptions(grade)[0],
@@ -1667,8 +1679,13 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     setPartLocks((prev) => ({ ...prev, [category]: false }));
 
   useEffect(() => {
-    setClasses(loadTeacherClasses());
-    setClassesLoaded(true);
+    const refresh = () => {
+      setClasses(loadTeacherClasses());
+      setClassesLoaded(true);
+    };
+    refresh();
+    window.addEventListener(TEACHER_CLASSES_CHANGED, refresh);
+    return () => window.removeEventListener(TEACHER_CLASSES_CHANGED, refresh);
   }, []);
 
   useEffect(() => subscribeCustomProblemBank(() => {
@@ -1779,6 +1796,12 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
       ),
     [classes, selectedGrade]
   );
+  const receiverEmpty =
+    filteredReceiverClasses.length > 0
+      ? null
+      : classes.length === 0
+        ? "none"
+        : "mismatch";
 
   const rangeKey = `${rangeValues.grade}|${rangeValues.book}|${rangeValues.unit}`;
   const passageScope = {
@@ -2730,6 +2753,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
         className="rounded-[14px] border border-[#E8E8EA] bg-white px-3.5 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
         data-guide="problem-classes"
         data-guide-done={selectedClassIds.length > 0 ? "true" : undefined}
+        data-guide-empty={receiverEmpty ?? undefined}
       >
         <div className="mb-1 flex items-center justify-between gap-3">
           <SectionHeading n={2} title="받는 반" />
@@ -2836,7 +2860,9 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
           </div>
         ) : (
           <p className="text-[13px] text-[#9497A0]">
-            해당하는 반이 없어요. 반 설정에서 학년을 지정해 주세요.
+            {receiverEmpty === "none"
+              ? "아직 만든 반이 없어요. 왼쪽 「새 반 추가」로 반을 먼저 만들어 주세요."
+              : `「${selectedGrade}」에 해당하는 반이 없어요. 위에서 학년을 바꾸면 반이 나타납니다.`}
           </p>
         )}
       </section>
@@ -2951,6 +2977,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
         </div>
         <div className="divide-y divide-[#ECECEF]">
           <TypeSelectSection
+            guideAnchor="problem-words"
             title="단어"
             options={WORD_TYPE_OPTIONS}
             typeOn={wordTypeOn}
@@ -3053,6 +3080,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
             ) : null}
           </TypeSelectSection>
           <TypeSelectSection
+            guideAnchor="problem-sentences"
             title="문장"
             options={SENTENCE_TYPE_OPTIONS}
             typeOn={sentenceTypeOn}
@@ -3151,6 +3179,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
             ) : null}
           </TypeSelectSection>
           <TypeSelectSection
+            guideAnchor="problem-grammar"
             title="문법"
             options={GRAMMAR_TYPE_OPTIONS}
             typeOn={grammarTypeOn}

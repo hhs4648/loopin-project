@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   GUIDE_TOURS,
+  guideStopView,
   hasNextButton,
   isStopReady,
   resolveActiveStop,
+  type GuideStopView,
   type ResolvedStop,
 } from "@/lib/teacher-guide-tour";
 import type { StartGuideStepId } from "@/lib/teacher-onboarding";
@@ -34,6 +36,8 @@ export type GuideCoachMarkProps = {
   onProgressMayChange: () => void;
   /** 마지막 지점까지 다 보고 안내를 마쳤다 */
   onFinish?: () => void;
+  /** 받는 반이 하나도 없을 때 — 반 만들기 안내로 돌린다 */
+  onNeedCreateClass?: () => void;
 };
 
 type Rect = { top: number; left: number; width: number; height: number };
@@ -149,7 +153,7 @@ const ASK: Record<string, string | undefined> = {
  * 스크롤되는 목록(`overflow-y-auto`) 안쪽 내용의 높이까지 딸려 들어와 구멍이
  * 엉뚱하게 커진다.
  */
-function measure(anchor: string): Rect | null {
+function measureOne(anchor: string): Rect | null {
   const el = document.querySelector<HTMLElement>(`[data-guide="${anchor}"]`);
   if (!el) return null;
   const base = el.getBoundingClientRect();
@@ -170,6 +174,23 @@ function measure(anchor: string): Rect | null {
   return { top, left, width: right - left, height: bottom - top };
 }
 
+function measureAnchors(anchors: string[]): Rect | null {
+  const rects = anchors
+    .map((anchor) => measureOne(anchor))
+    .filter((rect): rect is Rect => Boolean(rect));
+  if (rects.length === 0) return null;
+  let { top, left } = rects[0]!;
+  let bottom = top + rects[0]!.height;
+  let right = left + rects[0]!.width;
+  for (const rect of rects.slice(1)) {
+    top = Math.min(top, rect.top);
+    left = Math.min(left, rect.left);
+    bottom = Math.max(bottom, rect.top + rect.height);
+    right = Math.max(right, rect.left + rect.width);
+  }
+  return { top, left, width: right - left, height: bottom - top };
+}
+
 export function GuideCoachMark({
   step,
   classId,
@@ -178,9 +199,11 @@ export function GuideCoachMark({
   onGo,
   onProgressMayChange,
   onFinish,
+  onNeedCreateClass,
 }: GuideCoachMarkProps) {
   const tour = GUIDE_TOURS[step];
   const [active, setActive] = useState<ResolvedStop>({ kind: "entry" });
+  const [view, setView] = useState<GuideStopView | null>(null);
   const [rect, setRect] = useState<Rect | null>(null);
   /*
     색상·시간처럼 **안 만져도 되는** 지점은 화면만 봐서는 「끝났다」를 알 수 없다.
@@ -205,17 +228,19 @@ export function GuideCoachMark({
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         const next = resolveActiveStop(tour, passed);
-        setActive(next);
-        setRect(next.kind === "stop" ? measure(next.stop.anchor) : null);
-        setReady(
+        const stopEl =
           next.kind === "stop"
-            ? isStopReady(
-                next.stop,
-                document.querySelector<HTMLElement>(
-                  `[data-guide="${next.stop.anchor}"]`,
-                ),
+            ? document.querySelector<HTMLElement>(
+                `[data-guide="${next.stop.anchor}"]`,
               )
-            : false,
+            : null;
+        const nextView =
+          next.kind === "stop" ? guideStopView(next.stop, stopEl) : null;
+        setActive(next);
+        setView(nextView);
+        setRect(nextView ? measureAnchors(nextView.measureAnchors) : null);
+        setReady(
+          next.kind === "stop" ? isStopReady(next.stop, stopEl) : false,
         );
         /*
           「이대로 좋아요」로 넘긴 기록은 **그 자리가 화면에 있는 동안만** 유효하다.
@@ -332,10 +357,16 @@ export function GuideCoachMark({
       if (el.closest("[data-guide-ui]")) return true;
       if (el.closest("[data-guide-panel]")) return true;
       if (active.kind !== "stop") return false;
-      const anchor = document.querySelector(
-        `[data-guide="${active.stop.anchor}"]`,
-      );
-      return Boolean(anchor?.contains(el));
+      const names = new Set([
+        active.stop.anchor,
+        ...(view?.measureAnchors ?? []),
+        ...(view?.allowAnchors ?? []),
+      ]);
+      for (const name of names) {
+        const anchor = document.querySelector(`[data-guide="${name}"]`);
+        if (anchor?.contains(el)) return true;
+      }
+      return false;
     };
 
     const block = (e: Event) => {
@@ -388,7 +419,7 @@ export function GuideCoachMark({
     return () => {
       for (const t of types) document.removeEventListener(t, block, true);
     };
-  }, [active]);
+  }, [active, view]);
 
   /*
     적던 칸에서 **엔터**를 치면 다음으로. 「다음」 버튼까지 마우스를 옮기게 하면
@@ -525,10 +556,10 @@ export function GuideCoachMark({
           </span>
         ) : null}
         <h4 className="mt-0.5 text-[14px] font-bold leading-snug text-[#15171A]">
-          {stop.title}
+          {view?.title ?? stop.title}
         </h4>
         <p className="mt-1.5 text-[12.5px] font-medium leading-[1.55] text-[#5A6472]">
-          {stop.body}
+          {view?.body ?? stop.body}
         </p>
         {ASK[stop.advance] ? (
           <p className="mt-2 text-[11.5px] font-bold text-[#1AA7F2]">
@@ -538,8 +569,17 @@ export function GuideCoachMark({
         {/*
           누르는 지점(`press`)만 빼고 **모두 「다음」으로 넘어간다.** 값이 채워지자마자
           자동으로 넘기지 않는다 — 잘못 골랐을 때 되돌릴 틈이 없다.
+          받을 반이 하나도 없으면 「다음」 대신 반 만들기로 보낸다.
         */}
-        {hasNextButton(stop) ? (
+        {view?.primaryAction === "need-class" && onNeedCreateClass ? (
+          <button
+            type="button"
+            className="mt-2.5 w-full rounded-[9px] bg-[#1AA7F2] py-2 text-[12px] font-bold text-white hover:bg-[#1596DB]"
+            onClick={onNeedCreateClass}
+          >
+            반 만들러 가기
+          </button>
+        ) : hasNextButton(stop) ? (
           <button
             type="button"
             disabled={!ready}
@@ -549,7 +589,11 @@ export function GuideCoachMark({
               onProgressMayChange();
             }}
           >
-            {ready ? "다음" : (stop.notReadyLabel ?? "먼저 위 칸을 채워 주세요")}
+            {ready
+              ? "다음"
+              : (view?.notReadyLabel ??
+                stop.notReadyLabel ??
+                "먼저 위 칸을 채워 주세요")}
           </button>
         ) : null}
         {skipRow}

@@ -104,6 +104,10 @@ export function StartGuidePanel() {
         setPointing(null);
       }}
       onGo={(href) => router.push(href)}
+      onNeedCreateClass={() => {
+        router.push("/teacher");
+        setPointing("create-class");
+      }}
       onProgressMayChange={() => void refresh()}
       onFinish={() => {
         /*
