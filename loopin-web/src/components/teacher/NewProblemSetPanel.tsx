@@ -2864,7 +2864,10 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
       ) : null}
 
       {/* 3 본문 — 단원 단어 추적 + 문장 분할 */}
-      <section className="rounded-[14px] border border-[#E8E8EA] bg-white px-3.5 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
+      <section
+        data-guide="problem-passage"
+        className="rounded-[14px] border border-[#E8E8EA] bg-white px-3.5 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
+      >
         <div className="mb-1">
           <SectionHeading n={3} title="본문" />
         </div>
