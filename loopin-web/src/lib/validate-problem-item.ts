@@ -35,11 +35,16 @@ export function validateProblemItemInput(input: {
   if (!ko) return "한글 뜻을 입력해 주세요.";
 
   if (input.kind === "word") {
+    /*
+      **예문은 선택이다.** 예전에는 예문과 그 뜻이 없으면 저장을 막았는데, 단어만 넣고
+      싶은 경우가 훨씬 많다 — 예문까지 매번 지어내라고 하면 단어 추가 자체를 안 하게 된다.
+      비워 두면 예문을 쓰는 문제 유형에서 그 단어가 빠질 뿐, 나머지는 그대로 나간다.
+
+      **넣었을 때의 형식 검사는 그대로 둔다.** 빈칸이 단어와 안 맞으면 문제가 깨지므로
+      그건 여전히 막아야 한다 — 「안 써도 된다」와 「틀리게 써도 된다」는 다르다.
+    */
     const exampleEn = (input.exampleEn ?? "").trim();
-    const exampleKo = (input.exampleKo ?? "").trim();
-    if (!exampleEn) {
-      return "예문(영어)을 입력해 주세요.";
-    }
+    if (!exampleEn) return null;
     const cloze = findExistingCloze(exampleEn);
     if (cloze === "__multiple__") {
       return "예문(영어)의 [빈칸]은 하나만 넣어 주세요.";
@@ -49,9 +54,6 @@ export function validateProblemItemInput(input: {
     }
     if (cloze === null && !wrapMatchingWord(exampleEn, en)) {
       return `예문에 영어 단어 "${en}"이 없어요. 같은 단어나 활용형(held 등)을 넣으면 빈칸이 자동으로 생겨요.`;
-    }
-    if (!exampleKo) {
-      return "예문 뜻(한글)을 입력해 주세요.";
     }
     return null;
   }
