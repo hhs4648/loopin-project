@@ -45,39 +45,58 @@ import {
 import { dismissUnitProgress } from "@/lib/unit-progress-dismiss";
 import { CopyToast, copyToClipboard } from "@/components/teacher/CopyToast";
 
-/** SVG 히어로 카드 (담당 반 색으로 다시 칠함) */
-const HERO = {
+/** 다음 수업 카드 — `assets/next-class-card.svg` */
+const NEXT_CARD = {
   left: 293.875,
   top: 134.074,
   width: 1207.12,
-  height: 121.1,
-  radius: 12.975,
-  barWidth: 4.14071,
+  height: 132,
+  radius: 14,
+  /** 카드 왼쪽 세로 줄 — 라운드에 맞춰 잘림 */
+  barWidth: 6,
 } as const;
 
-/** 왼쪽 텍스트 블록 */
-const CONTENT = {
-  left: 320,
-  labelTop: 150,
-  titleTop: 168,
-  todoTop: 214.629,
-  todoLeft: 313.052,
-  todoWidth: 429.744,
-  todoHeight: 27.0312,
-} as const;
+/** 다음 수업 카드 색 — 반 팔레트(`calendar`/`bar`/`text`)에서 만든다 */
+function nextCardTheme(colors?: TeacherClass["colors"]) {
+  const bar = colors?.bar || "#A4D24C";
+  const text = colors?.text || "#6AA912";
+  const calendar = colors?.calendar || "#F2FEE7";
+  return {
+    bg: calendar,
+    title: text,
+    ink: text,
+    chipBorder: mixHex(calendar, bar, 0.35),
+    chipText: text,
+    boxBorder: mixHex("#FFFFFF", bar, 0.14),
+    muted: "#8A8FA8",
+    bar,
+    button: bar,
+    statsBg: mixHex(calendar, bar, 0.22),
+    statsNum: text,
+    statsLabel: mixHex("#8A8FA8", text, 0.35),
+    statsLine: mixHex(calendar, bar, 0.45),
+  };
+}
 
-/**
- * 히어로 우측 통계 듀오 — 수강 인원 | 미완료 과제.
- * 배경·숫자 모두 담당 반 색 계열로 통일.
- */
-const STATS = {
-  left: 1248,
-  top: 158,
-  width: 236,
-  height: 78,
-  colW: 108,
-  gap: 14,
-} as const;
+function mixHex(from: string, to: string, amount: number): string {
+  const a = parseHexRgb(from);
+  const b = parseHexRgb(to);
+  if (!a || !b) return from;
+  const mix = (x: number, y: number) => Math.round(x + (y - x) * amount);
+  return `#${[mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b)]
+    .map((n) => n.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function parseHexRgb(hex: string): { r: number; g: number; b: number } | null {
+  const raw = hex.replace("#", "");
+  if (raw.length !== 6) return null;
+  return {
+    r: Number.parseInt(raw.slice(0, 2), 16),
+    g: Number.parseInt(raw.slice(2, 4), 16),
+    b: Number.parseInt(raw.slice(4, 6), 16),
+  };
+}
 
 /** SVG 과제 현황 카드 — 데모 제거 · 미부여 시 빈 상태 */
 const ASSIGNMENT_CARD = {
@@ -144,12 +163,13 @@ type ClassHomeOverlayProps = {
 
 /**
  * 반 홈 개편안 보정:
- * - 히어로 배경·왼쪽 바·통계를 **담당 반 색**으로 통일
+ * - 히어로 = **다음 수업 카드**(`next-class-card.svg` 레이아웃 · **색은 반 팔레트**)
+ *   왼쪽 시간 칩·날짜·메모 · **가운데 초대 코드 흰 카드** · 오른쪽 수강/미완료
  * - 「N차시」개념 제거 → **다음 수업**(오늘 기준) 날짜·시간 표시
  * - **메모** = 캘린더 수업 메모와 동일 값 (정규 dayLessonMeta / 추가 OneOffLesson)
  * - **과제 현황**: SVG 데모 삭제 · 미부여 시 빈 상태 · 부여 시 수업일 ≫ 마감 표시
  * - **학생 현황**: 등록 학생 최대 4명 · 없으면 빈 상태 문구
- * - **반 정보**: 주간 시간표·개강일·학년·초대코드 네모칸
+ * - **반 정보**: 주간 시간표·개강일·학년
  */
 export function ClassHomeOverlay({
   studentCount,
@@ -165,9 +185,9 @@ export function ClassHomeOverlay({
   onUpdateNextLessonTitle,
 }: ClassHomeOverlayProps) {
   const colors = teacherClass?.colors;
-  const heroBg = colors?.calendar || "#F2FEE7";
   const barColor = colors?.bar || "#A4D24C";
   const accent = colors?.text || "#6AA912";
+  const cardTheme = nextCardTheme(colors);
   const todoInputId = useId();
 
   const next = teacherClass
@@ -224,26 +244,23 @@ export function ClassHomeOverlay({
     }
   };
 
-  const memoShellClass = (() => {
-    if (!next) {
-      return "border-[#E0DFDC] bg-white";
-    }
-    if (justApplied || isApplied) {
-      return "border-transparent shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]";
-    }
-    if (isDirty || focused) {
-      return "border-[#C9CCD2] bg-white ring-1 ring-[#1AA7F2]/25";
-    }
-    return "border-[#E0DFDC] bg-white";
-  })();
-
-  const memoShellStyle =
-    next && (justApplied || isApplied)
-      ? {
-          backgroundColor: `${barColor}28`,
-          boxShadow: `inset 0 0 0 1px ${barColor}`,
-        }
-      : undefined;
+  const memoTinted = Boolean(next && (justApplied || isApplied));
+  const memoShellClass = !next
+    ? "border bg-white"
+    : memoTinted
+      ? "border-transparent"
+      : "border bg-white";
+  const memoShellStyle = memoTinted
+    ? {
+        backgroundColor: `${cardTheme.bar}18`,
+        boxShadow: `inset 0 0 0 1px ${cardTheme.bar}`,
+      }
+    : {
+        borderColor: cardTheme.boxBorder,
+        ...(isDirty || focused
+          ? { boxShadow: `0 0 0 1px ${cardTheme.bar}55` }
+          : {}),
+      };
 
   const preview = students.slice(0, STUDENT_CARD.maxVisible);
   const studentsHref = classId ? classTabHref(classId, "students") : undefined;
@@ -282,202 +299,224 @@ export function ClassHomeOverlay({
         aria-hidden
       />
 
-      {/* 라운드 코너 밖으로 SVG 초록 바가 비치지 않도록 흰 스트립 */}
+      {/*
+        class-home.svg 히어로(연두 배경 + 반 색 세로 바 4px)가
+        다음 수업 카드 라운드 밖으로 비치지 않게 먼저 가린다.
+      */}
       <div
         className="absolute bg-white"
         style={{
-          left: HERO.left,
-          top: HERO.top,
-          width: 8,
-          height: HERO.height,
+          left: NEXT_CARD.left,
+          top: NEXT_CARD.top,
+          width: NEXT_CARD.width,
+          height: NEXT_CARD.height,
         }}
         aria-hidden
       />
-      {/* 히어로 배경(반 색) + 왼쪽 바 — 라운드에 맞춰 바까지 클리핑 */}
+
+      {/* 다음 수업 카드 — 가운데가 초대 코드 (`next-class-card.svg`) */}
       <div
-        className="absolute overflow-hidden"
+        className="pointer-events-none absolute flex items-center gap-4 overflow-hidden px-6"
         style={{
-          left: HERO.left,
-          top: HERO.top,
-          width: HERO.width,
-          height: HERO.height,
-          borderRadius: HERO.radius,
-          backgroundColor: heroBg,
+          left: NEXT_CARD.left,
+          top: NEXT_CARD.top,
+          width: NEXT_CARD.width,
+          height: NEXT_CARD.height,
+          borderRadius: NEXT_CARD.radius,
+          backgroundColor: cardTheme.bg,
         }}
-        aria-hidden
+        aria-label="다음 수업"
       >
         <div
           className="absolute inset-y-0 left-0"
-          style={{ width: HERO.barWidth + 1, backgroundColor: barColor }}
-        />
-      </div>
-
-      {/* 왼쪽: 다음 수업 */}
-      <span
-        className="absolute font-bold"
-        style={{
-          left: CONTENT.left,
-          top: CONTENT.labelTop,
-          fontSize: 13,
-          lineHeight: "16px",
-          color: accent,
-        }}
-      >
-        다음 수업
-      </span>
-
-      {next ? (
-        <span
-          className="absolute flex items-center gap-2"
-          style={{ left: CONTENT.left, top: CONTENT.titleTop }}
-        >
-          {/* 캘린더 카드와 동일한 흰색 시간 칩 */}
-          <span
-            className="inline-flex items-center rounded-[6px] bg-white px-1.5 font-bold"
-            style={{ fontSize: 12, lineHeight: "22px", color: accent }}
-          >
-            {formatTimeChip(next.start)}
-          </span>
-          <span
-            className="font-bold"
-            style={{
-              fontSize: 22,
-              lineHeight: "28px",
-              letterSpacing: "-0.01em",
-              color: accent,
-            }}
-          >
-            {formatNextClassDate(next.date)}
-          </span>
-          <span
-            className="font-semibold text-[#5B5B5B]"
-            style={{ fontSize: 14, lineHeight: "28px" }}
-          >
-            {next.start}–{next.end}
-          </span>
-        </span>
-      ) : (
-        <span
-          className="absolute font-bold text-[#16150F]"
           style={{
-            left: CONTENT.left,
-            top: CONTENT.titleTop,
-            fontSize: 20,
-            lineHeight: "28px",
-          }}
-        >
-          예정된 수업이 없어요
-        </span>
-      )}
-
-      {/* 메모 = 캘린더 수업 메모 공유 · 적용 버튼 + 저장 상태 */}
-      <div
-        className={`absolute flex items-center gap-1.5 rounded-[6px] border px-2.5 transition-[background-color,border-color,box-shadow] duration-200 ${
-          next ? "pointer-events-auto" : "pointer-events-none"
-        } ${memoShellClass}`}
-        style={{
-          left: CONTENT.todoLeft,
-          top: CONTENT.todoTop,
-          width: CONTENT.todoWidth,
-          height: CONTENT.todoHeight,
-          ...memoShellStyle,
-        }}
-      >
-        <label
-          htmlFor={todoInputId}
-          className="shrink-0 text-[12px] font-medium"
-          style={{ color: isApplied || justApplied ? accent : "#9A958E" }}
-        >
-          메모:
-        </label>
-        {next ? (
-          <>
-            <input
-              id={todoInputId}
-              value={draftTitle}
-              maxLength={40}
-              disabled={!onUpdateNextLessonTitle}
-              onChange={(event) => setDraftTitle(event.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              onKeyDown={onTodoKeyDown}
-              placeholder="아직 입력되지 않았어요"
-              className="min-w-0 flex-1 bg-transparent text-[12px] font-medium text-[#3D4148] outline-none placeholder:font-normal placeholder:text-[#9A958E] disabled:cursor-default"
-              style={
-                isApplied || justApplied ? { color: accent, fontWeight: 600 } : undefined
-              }
-              aria-label="다음 수업 메모 (캘린더와 동일)"
-            />
-            {isDirty ? (
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={commitTitle}
-                className="shrink-0 rounded-[5px] px-2 py-0.5 text-[11px] font-bold text-white transition-colors hover:brightness-95"
-                style={{ backgroundColor: accent }}
-              >
-                적용
-              </button>
-            ) : justApplied || isApplied ? (
-              <span
-                className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-bold"
-                style={{ color: accent }}
-                aria-live="polite"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                  <path
-                    d="M2.5 6.2 4.8 8.5 9.5 3.5"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                {justApplied ? "적용됨" : "저장됨"}
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[#9A958E]">
-            예정된 수업이 없어요
-          </span>
-        )}
-      </div>
-
-      {/* 오른쪽: 통계 (반 색 계열) */}
-      <div
-        className="absolute flex items-center rounded-[12px]"
-        style={{
-          left: STATS.left,
-          top: STATS.top,
-          width: STATS.width,
-          height: STATS.height,
-          backgroundColor: `${barColor}22`,
-        }}
-      >
-        <StatCol
-          value={studentCount}
-          label="명 수강"
-          width={STATS.colW}
-          valueColor={accent}
-        />
-        <div
-          className="shrink-0 self-center"
-          style={{
-            width: 1,
-            height: 44,
-            marginLeft: STATS.gap / 2,
-            marginRight: STATS.gap / 2,
-            backgroundColor: `${accent}40`,
+            width: NEXT_CARD.barWidth,
+            backgroundColor: barColor,
           }}
           aria-hidden
         />
-        <StatCol
-          value={incompleteAssignmentCount}
-          label="미완료 과제"
-          width={STATS.colW}
-          valueColor={accent}
-        />
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-2 py-1.5">
+          <span
+            className="text-[15px] font-bold leading-none"
+            style={{ color: cardTheme.title }}
+          >
+            다음 수업
+          </span>
+          {next ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span
+                className="inline-flex h-[27px] items-center rounded-[8px] border bg-white px-2.5 text-[13px] font-bold"
+                style={{
+                  borderColor: cardTheme.chipBorder,
+                  color: cardTheme.chipText,
+                }}
+              >
+                {formatTimeChip(next.start)}
+              </span>
+              <span
+                className="text-[22px] font-bold leading-none tracking-[-0.01em]"
+                style={{ color: cardTheme.ink }}
+              >
+                {formatNextClassDate(next.date)}
+              </span>
+              <span
+                className="text-[14px] font-semibold leading-none"
+                style={{ color: cardTheme.muted }}
+              >
+                {next.start}–{next.end}
+              </span>
+            </div>
+          ) : (
+            <span
+              className="text-[16px] font-bold"
+              style={{ color: cardTheme.ink }}
+            >
+              예정된 수업이 없어요
+            </span>
+          )}
+          <div
+            className={`flex h-[33px] max-w-[430px] items-center gap-1.5 rounded-[8px] border px-2.5 transition-[background-color,border-color,box-shadow] duration-200 ${
+              next ? "pointer-events-auto" : "pointer-events-none"
+            } ${memoShellClass}`}
+            style={memoShellStyle}
+          >
+            <label
+              htmlFor={todoInputId}
+              className="shrink-0 text-[12px] font-medium"
+              style={{
+                color: memoTinted ? cardTheme.chipText : cardTheme.muted,
+              }}
+            >
+              메모:
+            </label>
+            {next ? (
+              <>
+                <input
+                  id={todoInputId}
+                  value={draftTitle}
+                  maxLength={40}
+                  disabled={!onUpdateNextLessonTitle}
+                  onChange={(event) => setDraftTitle(event.target.value)}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                  onKeyDown={onTodoKeyDown}
+                  placeholder="아직 입력되지 않았어요"
+                  className="min-w-0 flex-1 bg-transparent text-[12px] font-medium outline-none placeholder:font-normal placeholder:text-[#A0A5BD] disabled:cursor-default"
+                  style={{
+                    color: memoTinted
+                      ? cardTheme.chipText
+                      : cardTheme.ink,
+                    fontWeight: memoTinted ? 600 : 500,
+                  }}
+                  aria-label="다음 수업 메모 (캘린더와 동일)"
+                />
+                {isDirty ? (
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={commitTitle}
+                    className="shrink-0 rounded-[8px] px-2 py-0.5 text-[11px] font-bold text-white outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-black/20"
+                    style={{ backgroundColor: cardTheme.button }}
+                  >
+                    적용
+                  </button>
+                ) : justApplied || isApplied ? (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-bold"
+                    style={{ color: cardTheme.chipText }}
+                    aria-live="polite"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      aria-hidden
+                    >
+                      <path
+                        d="M2.5 6.2 4.8 8.5 9.5 3.5"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    {justApplied ? "적용됨" : "저장됨"}
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              <span
+                className="min-w-0 flex-1 truncate text-[12px]"
+                style={{ color: cardTheme.muted }}
+              >
+                예정된 수업이 없어요
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div
+          data-guide="invite-code"
+          className="flex h-[88px] w-[224px] shrink-0 items-center gap-2.5 rounded-[12px] bg-white px-3"
+        >
+          <span
+            className="h-[52px] w-[4px] shrink-0 rounded-full"
+            style={{ backgroundColor: cardTheme.bar }}
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <p
+              className="text-[12px] font-semibold leading-none"
+              style={{ color: cardTheme.muted }}
+            >
+              초대 코드
+            </p>
+            <p
+              className="mt-1.5 truncate text-[22px] font-bold leading-none tracking-[0.04em]"
+              style={{ color: cardTheme.ink }}
+            >
+              {inviteCode}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="pointer-events-auto flex h-[34px] shrink-0 items-center rounded-[10px] px-2.5 text-[12px] font-bold text-white outline-none transition-colors hover:brightness-95 focus-visible:ring-2 focus-visible:ring-black/20"
+            style={{ backgroundColor: cardTheme.button }}
+            onClick={() => {
+              const code = teacherClass?.inviteCode;
+              if (!code) return;
+              void copyToClipboard(code).then((ok) => {
+                if (ok) setCopyToastTick((tick) => tick + 1);
+              });
+            }}
+          >
+            복사
+          </button>
+        </div>
+
+        <div
+          className="flex h-[88px] w-[207px] shrink-0 items-center rounded-[12px] px-2"
+          style={{ backgroundColor: cardTheme.statsBg }}
+        >
+          <NextCardStat
+            value={studentCount}
+            label="명 수강"
+            valueColor={cardTheme.statsNum}
+            labelColor={cardTheme.statsLabel}
+          />
+          <div
+            className="mx-1 h-[42px] w-px shrink-0"
+            style={{ backgroundColor: cardTheme.statsLine }}
+            aria-hidden
+          />
+          <NextCardStat
+            value={incompleteAssignmentCount}
+            label="미완료 과제"
+            valueColor={cardTheme.statsNum}
+            labelColor={cardTheme.statsLabel}
+          />
+        </div>
       </div>
 
       {/* 과제 현황 — SVG 데모 삭제 · 미부여 시 빈 상태 */}
@@ -746,34 +785,7 @@ export function ClassHomeOverlay({
             clamp
           />
           <InfoCell label="개강일" value={openingLabel} flex={1.2} />
-          <InfoCell label="학년" value={gradeLabel} flex={0.6} />
-          <div
-            data-guide="invite-code"
-            className="flex min-w-0 flex-col justify-center rounded-[10px] border border-[#E0E4EA] bg-white px-4"
-            style={{ flex: "1.1 1 0" }}
-          >
-            <span className="text-[12px] font-medium text-[#9A958E]">
-              초대 코드
-            </span>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="truncate text-[15px] font-bold text-[#16150F]">
-                {inviteCode}
-              </span>
-              <button
-                type="button"
-                className="pointer-events-auto shrink-0 rounded-[6px] border border-[#E0E4EA] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#6B6B6B] outline-none hover:bg-[#F7F7F7] focus-visible:ring-2 focus-visible:ring-[#1AA7F2]"
-                onClick={() => {
-                  const code = teacherClass?.inviteCode;
-                  if (!code) return;
-                  void copyToClipboard(code).then((ok) => {
-                    if (ok) setCopyToastTick((tick) => tick + 1);
-                  });
-                }}
-              >
-                복사
-              </button>
-            </div>
-          </div>
+          <InfoCell label="학년" value={gradeLabel} flex={1} />
         </div>
       </div>
 
@@ -811,6 +823,38 @@ function InfoCell({
   );
 }
 
+function NextCardStat({
+  value,
+  label,
+  valueColor,
+  labelColor,
+}: {
+  value: number;
+  label: string;
+  valueColor: string;
+  labelColor: string;
+}) {
+  return (
+    <div
+      className="flex flex-1 flex-col items-center justify-center"
+      aria-label={`${value} ${label}`}
+    >
+      <span
+        className="text-[28px] font-bold leading-none tabular-nums"
+        style={{ color: valueColor }}
+      >
+        {value}
+      </span>
+      <span
+        className="mt-1.5 text-[12px] font-medium leading-none"
+        style={{ color: labelColor }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
 /** "오전 9:00" — 캘린더 이벤트 카드와 동일한 시간 칩 포맷 */
 function formatTimeChip(hhmm: string): string {
   const [h, m] = hhmm.split(":").map((n) => Number(n));
@@ -843,40 +887,3 @@ function homeStudentStatusBadge(
   }
 }
 
-function StatCol({
-  value,
-  label,
-  width,
-  valueColor,
-}: {
-  value: number;
-  label: string;
-  width: number;
-  valueColor: string;
-}) {
-  return (
-    <div
-      className="flex flex-col items-center justify-center"
-      style={{ width }}
-      aria-label={`${value} ${label}`}
-    >
-      <span
-        className="font-bold tabular-nums"
-        style={{
-          fontSize: 34,
-          lineHeight: "38px",
-          letterSpacing: "-0.02em",
-          color: valueColor,
-        }}
-      >
-        {value}
-      </span>
-      <span
-        className="font-medium"
-        style={{ fontSize: 13, lineHeight: "18px", marginTop: 4, color: "#7C7C7C" }}
-      >
-        {label}
-      </span>
-    </div>
-  );
-}

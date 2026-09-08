@@ -152,6 +152,45 @@ export async function deleteClassAssignmentRemote(
  * 문제집(`problem_sets.payload`)까지 같이 돌려준다 —
  * `getAssignedProblemsForClass`가 문제집 없는 과제를 버리기 때문이다.
  */
+export function classAssignmentFromRemoteRow(
+  row: Record<string, unknown>,
+): ClassAssignment {
+  const lessonDate = String(row.lesson_date ?? "");
+  const targetStudentId = row.target_student_id;
+  // 006 이전 DB에서 읽으면 undefined — 재출제 묶기·원본 링크만 빠지고 나머지는 그대로 동작한다
+  const sourceAssignmentId = row.source_assignment_id;
+  const reissueBatchId = row.reissue_batch_id;
+  return {
+    id: String(row.id),
+    problemSetId: String(row.problem_set_id),
+    classId: String(row.class_id),
+    lessonDate,
+    // 007 이전 행은 `deadline_date`가 없다 — 그때만 수업일로 대체한다
+    deadlineDate:
+      typeof row.deadline_date === "string" && row.deadline_date
+        ? row.deadline_date
+        : lessonDate,
+    deadlineTime: String(row.deadline_time ?? ""),
+    ...(row.deadline_until_next_lesson === true
+      ? { deadlineUntilNextLesson: true }
+      : {}),
+    // 009 이전 행은 컬럼이 없다 — 없으면 「이미 공개」
+    ...(typeof row.open_at === "string" && row.open_at
+      ? { openAt: row.open_at }
+      : {}),
+    ...(typeof targetStudentId === "string" && targetStudentId
+      ? { targetStudentId: String(targetStudentId) }
+      : {}),
+    ...(typeof sourceAssignmentId === "string" && sourceAssignmentId
+      ? { sourceAssignmentId: String(sourceAssignmentId) }
+      : {}),
+    ...(typeof reissueBatchId === "string" && reissueBatchId
+      ? { reissueBatchId: String(reissueBatchId) }
+      : {}),
+    assignedAt: String(row.assigned_at ?? new Date().toISOString()),
+  };
+}
+
 export async function fetchClassAssignmentsRemote(classId: string): Promise<{
   assignments: ClassAssignment[];
   problemSets: SavedProblemSet[];
@@ -172,42 +211,9 @@ export async function fetchClassAssignmentsRemote(classId: string): Promise<{
     return empty;
   }
 
-  const assignments: ClassAssignment[] = rows.map((row) => {
-    const lessonDate = String(row.lesson_date ?? "");
-    const targetStudentId = row.target_student_id;
-    // 006 이전 DB에서 읽으면 undefined — 재출제 묶기·원본 링크만 빠지고 나머지는 그대로 동작한다
-    const sourceAssignmentId = row.source_assignment_id;
-    const reissueBatchId = row.reissue_batch_id;
-    return {
-      id: String(row.id),
-      problemSetId: String(row.problem_set_id),
-      classId: String(row.class_id),
-      lessonDate,
-      // 007 이전 행은 `deadline_date`가 없다 — 그때만 수업일로 대체한다
-      deadlineDate:
-        typeof row.deadline_date === "string" && row.deadline_date
-          ? row.deadline_date
-          : lessonDate,
-      deadlineTime: String(row.deadline_time ?? ""),
-      ...(row.deadline_until_next_lesson === true
-        ? { deadlineUntilNextLesson: true }
-        : {}),
-      // 009 이전 행은 컬럼이 없다 — 없으면 「이미 공개」
-      ...(typeof row.open_at === "string" && row.open_at
-        ? { openAt: row.open_at }
-        : {}),
-      ...(typeof targetStudentId === "string" && targetStudentId
-        ? { targetStudentId }
-        : {}),
-      ...(typeof sourceAssignmentId === "string" && sourceAssignmentId
-        ? { sourceAssignmentId }
-        : {}),
-      ...(typeof reissueBatchId === "string" && reissueBatchId
-        ? { reissueBatchId }
-        : {}),
-      assignedAt: String(row.assigned_at ?? new Date().toISOString()),
-    };
-  });
+  const assignments: ClassAssignment[] = rows.map((row) =>
+    classAssignmentFromRemoteRow(row as Record<string, unknown>),
+  );
 
   const setIds = [...new Set(assignments.map((a) => a.problemSetId))];
   if (setIds.length === 0) return { assignments, problemSets: [] };

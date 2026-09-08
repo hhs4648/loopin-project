@@ -177,7 +177,11 @@ export function loadProblemSets(): SavedProblemSet[] {
       window.localStorage.getItem(STORAGE_KEY) || "[]",
     ) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isSavedProblemSet);
+    return parsed.filter(
+      (item) =>
+        isSavedProblemSet(item) &&
+        !String(item.id).startsWith("haksup-workspace:"),
+    );
   } catch {
     return [];
   }
@@ -265,7 +269,9 @@ export function listLibraryProblemSets(
 }
 
 export function persistProblemSets(problemSets: SavedProblemSet[]): void {
-  saveProblemSets(problemSets);
+  saveProblemSets(
+    problemSets.filter((item) => !item.id.startsWith("haksup-workspace:")),
+  );
   window.dispatchEvent(new Event("haksup-problem-sets-changed"));
 }
 

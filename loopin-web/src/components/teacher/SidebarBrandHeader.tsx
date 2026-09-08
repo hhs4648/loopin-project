@@ -19,8 +19,8 @@ export function SidebarBrandHeader({
 }: SidebarBrandHeaderProps) {
   const theme = getBrandTheme(brand);
   const mark = brand.markText.slice(0, 2).trim();
-  const showImage =
-    brand.markMode === "image" && Boolean(brand.markImageDataUrl);
+  const photoMode = brand.markMode === "image";
+  const showImage = photoMode && Boolean(brand.markImageDataUrl);
   const teacher = teacherName?.trim();
 
   return (
@@ -38,7 +38,7 @@ export function SidebarBrandHeader({
         style={{
           width: 38,
           height: 38,
-          backgroundColor: theme.class,
+          backgroundColor: photoMode ? "#FFFFFF" : theme.class,
         }}
         aria-hidden
       >
@@ -49,7 +49,7 @@ export function SidebarBrandHeader({
             alt=""
             className="h-full w-full object-cover"
           />
-        ) : mark ? (
+        ) : !photoMode && mark ? (
           <span className="text-[15px] font-bold leading-none">{mark}</span>
         ) : null}
       </div>

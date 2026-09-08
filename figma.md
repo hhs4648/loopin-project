@@ -79,6 +79,7 @@ assets/
 | **캘린더 홈** (첫 화면) | `calendar-home.svg` | `/teacher` | 교사 진입 · **주간** 기본 |
 | **월간 캘린더** | `calendar-monthly.svg` | `/teacher` (토글 **월간**) | 참고 에셋 · 실제 UI는 `CalendarMonthlyPanel` |
 | 반 홈 | `class-home.svg` | `/teacher/classes/[classId]` | **개편안** · 사이드바·탭 오버레이 유지 |
+| 다음 수업 카드 | `next-class-card.svg` | `/teacher/classes/[classId]` | 반 홈 히어로 시안 · **가운데 흰 카드 = 초대 코드** · React로 재현 |
 | 반 과제 | `class-assignments.svg` | `?tab=assignments` | |
 | 반 학생 | `class-students.svg` | `?tab=students` | |
 | 반 차시 | `class-sessions.svg` | `?tab=sessions` | |

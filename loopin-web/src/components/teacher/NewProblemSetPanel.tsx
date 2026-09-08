@@ -29,8 +29,10 @@ import {
   type ProblemGrammar,
   type ProblemSentence,
   type ProblemWord,
+  ensureUnitLoaded,
   getUnitContent,
 } from "@/lib/problem-bank";
+import { useUnitBank } from "@/lib/use-unit-bank";
 import {
   loadProblemSets,
   type CreateProblemSetInput,
@@ -473,6 +475,7 @@ function TypeSelectSection({
   partActive,
   partCountControl,
   partTabs,
+  extraFilters,
   children,
 }: {
   title: string;
@@ -503,6 +506,8 @@ function TypeSelectSection({
   partCountControl?: ReactNode;
   /** 목록 위 파트 탭 줄 */
   partTabs?: ReactNode;
+  /** 유형 옆 필터 — 단어 「기초단어」처럼 목록만 좁히는 체크 */
+  extraFilters?: ReactNode;
   children?: ReactNode;
 }) {
   const [open, setOpen] = useState(true);
@@ -570,6 +575,7 @@ function TypeSelectSection({
                 label={label}
               />
             ))}
+            {extraFilters}
             {addLabel && onAdd ? (
               <button
                 type="button"
@@ -1370,6 +1376,11 @@ function WordBankList(props: BankListOwnProps<ProblemWord>) {
           <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
             <span className="font-medium text-[#16181D]">{item.english}</span>
             <span className="text-[#6B7280]">{item.korean}</span>
+            {item.isBasicWord ? (
+              <span className="rounded bg-[#EAF6FE] px-1.5 py-0.5 text-[11px] font-bold leading-none text-[#1274A9]">
+                기초
+              </span>
+            ) : null}
           </span>
           {item.exampleEn ? (
             <span className="mt-1 block text-[16px] text-[#374151]">
@@ -1560,6 +1571,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(
     null
   );
+  const [showBasicWords, setShowBasicWords] = useState(false);
   const [addKind, setAddKind] = useState<AddProblemKind | null>(null);
   const [editingItem, setEditingItem] = useState<EditingProblemItem | null>(
     null,
@@ -1734,6 +1746,13 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
   const unitSelected =
     Boolean(rangeValues.unit) && rangeValues.unit !== "단원 선택";
 
+  /* 문제은행은 교과서 단위로 나눠 받는다 — 조각이 도착하면 아래 계산이 다시 돈다 */
+  const bankReady = useUnitBank(
+    rangeValues.grade && rangeValues.book
+      ? { grade: rangeValues.grade, textbook: rangeValues.book }
+      : null,
+  );
+
   const unitContent = useMemo(() => {
     if (!unitSelected) {
       return { words: [], sentences: [], grammar: [] };
@@ -1749,6 +1768,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     rangeValues.book,
     rangeValues.unit,
     customBankTick,
+    bankReady,
   ]);
 
   const selectedGrade = rangeValues.grade ?? GRADE_OPTIONS[0];
@@ -1965,8 +1985,9 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
       ),
     );
     // 단원·저장 세트 변경 시에만 선택 초기화 (직접 추가 시 유지)
+    // `bankReady`가 있어야 한다 — 조각이 오기 전에 돌면 「기본 전체 선택」이 빈 채로 끝난다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingProblemSet, rangeKey, unitSelected]);
+  }, [editingProblemSet, rangeKey, unitSelected, bankReady]);
 
   const openAddModal = (kind: AddProblemKind) => {
     if (!unitSelected) return;
@@ -1985,7 +2006,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     setEditingItem(null);
   };
 
-  const applyPassageToProblems = () => {
+  const applyPassageToProblems = async () => {
     setPassageApplyError("");
     setPassageApplyNote("");
     if (!unitSelected) {
@@ -2016,6 +2037,8 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
       return;
     }
 
+    // 이 흐름은 화면이 그려지기 전에도 눌릴 수 있다 — 조각을 확실히 받고 읽는다
+    await ensureUnitLoaded(scope);
     const content = getUnitContent(scope);
     const matchedWords = matchUnitWordsInPassage(content.words, english);
     const prefix = passageSentenceIdPrefix(scope);
@@ -2087,18 +2110,36 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     saveUnitPassage(scope, passageEn, passageKo);
   };
 
-  const handleItemCreated = (kind: AddProblemKind, id: string) => {
+  const handleItemCreated = (kind: AddProblemKind, ids: string[]) => {
     setCustomBankTick((tick) => tick + 1);
     if (kind === "word") {
-      setIdInSet(setSelectedWordIds, id, true);
+      for (const id of ids) setIdInSet(setSelectedWordIds, id, true);
       return;
     }
     if (kind === "sentence") {
-      setIdInSet(setSelectedSentenceIds, id, true);
+      for (const id of ids) setIdInSet(setSelectedSentenceIds, id, true);
       return;
     }
-    setIdInSet(setSelectedGrammarIds, id, true);
+    for (const id of ids) setIdInSet(setSelectedGrammarIds, id, true);
   };
+
+  useEffect(() => {
+    if (showBasicWords) return;
+    const basicIds = new Set(
+      unitContent.words
+        .filter((word) => word.isBasicWord)
+        .map((word) => word.id),
+    );
+    if (basicIds.size === 0) return;
+    setSelectedWordIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of basicIds) {
+        if (next.delete(id)) changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [showBasicWords, unitContent.words]);
 
   useEffect(() => {
     if (!classesLoaded) return;
@@ -2109,7 +2150,14 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     setSubmitError("");
   }, [classesLoaded, filteredReceiverClasses]);
 
-  const wordIds = unitContent.words.map((w) => w.id);
+  const visibleWords = useMemo(
+    () =>
+      showBasicWords
+        ? unitContent.words
+        : unitContent.words.filter((word) => !word.isBasicWord),
+    [unitContent.words, showBasicWords],
+  );
+  const wordIds = visibleWords.map((w) => w.id);
   const sentenceIds = unitContent.sentences.map((s) => s.id);
   const grammarIds = unitContent.grammar.map((g) => g.id);
   const allWordsSelected =
@@ -2288,7 +2336,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     };
   };
 
-  const wordScope = scopeFor("words", unitContent.words);
+  const wordScope = scopeFor("words", visibleWords);
   const sentenceScope = scopeFor("sentences", unitContent.sentences);
   const grammarScope = scopeFor("grammar", unitContent.grammar);
 
@@ -2906,11 +2954,21 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
             showItems={unitSelected}
             submitCount={selectedWordCount}
             selectedCount={selectedWordCount}
-            totalCount={unitContent.words.length}
+            totalCount={visibleWords.length}
             allSelected={allWordsSelected}
             addLabel="+ 단어 추가"
             addDisabled={!unitSelected}
             onAdd={() => openAddModal("word")}
+            extraFilters={
+              <>
+                <span className="h-[18px] w-px shrink-0 bg-[#ECECEF]" aria-hidden />
+                <CheckToggle
+                  checked={showBasicWords}
+                  onChange={() => setShowBasicWords((prev) => !prev)}
+                  label="기초단어"
+                />
+              </>
+            }
             unitLabel="개"
             partActive={effectivePartView.words !== null}
             restCount={wordScope.rest.length}
@@ -3345,6 +3403,8 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
         open={addKind !== null}
         kind={addKind}
         editing={editingItem}
+        existingWords={unitContent.words}
+        existingSentences={unitContent.sentences}
         scope={
           unitSelected
             ? {

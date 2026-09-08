@@ -1,5 +1,6 @@
 import { getKoreanHoliday } from "@/lib/korean-holidays";
 import { parseIsoDateLocal } from "@/lib/teacher-classes";
+import { scheduleTeacherWorkspaceSync } from "@/lib/sync/teacher-workspace-schedule";
 
 export type AcademicHoliday = {
   id: string;
@@ -93,6 +94,7 @@ export function saveAcademicSchedule(settings: AcademicScheduleSettings): void {
       includePublicHolidays: Boolean(settings.includePublicHolidays),
     }),
   );
+  scheduleTeacherWorkspaceSync();
 }
 
 function toDateKey(date: Date): string {

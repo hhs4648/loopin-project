@@ -116,6 +116,7 @@ export function buildContentSnapshot(
       korean: stripMeaningParens(w.korean),
       exampleEn: ensureWordCloze(w.exampleEn, w.english) ?? w.exampleEn,
       exampleKo: w.exampleKo,
+      isBasicWord: w.isBasicWord || undefined,
     }));
 
   const sentences: ProblemSentenceSnapshot[] = unit.sentences

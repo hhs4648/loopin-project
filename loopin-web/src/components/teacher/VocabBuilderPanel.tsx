@@ -94,8 +94,9 @@ export function VocabBuilderPanel() {
   };
 
   /** 학습 제공 단어장 담기 — 복사본을 바로 편집기로 연다(저장은 교사가 확인 후) */
-  const pickHaksupCatalogSet = (info: HaksupVocabSetInfo) => {
-    const copied = buildVocabSetFromCatalog(info);
+  const pickHaksupCatalogSet = async (info: HaksupVocabSetInfo) => {
+    // 그 교과서 조각을 받아 와야 단어가 채워진다 — 목록은 개수만으로 그린다
+    const copied = await buildVocabSetFromCatalog(info);
     setCatalogOpen(false);
     setDraft(copied);
     setSelectedId(copied.id);

@@ -3,6 +3,7 @@ import {
   type ClassColorTheme,
   getColorTheme,
 } from "@/lib/teacher-classes";
+import { scheduleTeacherWorkspaceSync } from "@/lib/sync/teacher-workspace-schedule";
 
 /** 학교(브랜드) 컬러 = 반 색상 팔레트 8종의 「반 색상」행 */
 export const BRAND_COLOR_THEMES = CLASS_COLOR_THEMES;
@@ -42,6 +43,7 @@ export function loadSchoolBrand(): SchoolBrand {
 
 export function saveSchoolBrand(brand: SchoolBrand): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(brand));
+  scheduleTeacherWorkspaceSync();
 }
 
 export function normalizeBrand(input: Partial<SchoolBrand>): SchoolBrand {

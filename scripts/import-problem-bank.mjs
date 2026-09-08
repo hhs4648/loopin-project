@@ -11,9 +11,13 @@ const { splitEnglishChunksPhrase, splitKoreanChunksPhrase, formatChunkLine } =
   await import("../loopin-web/src/lib/ai/phrase-chunks.ts");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const xlsxPath = process.argv[2];
+/* `--`로 시작하는 건 음성 만들기 쪽으로 그대로 넘긴다 (`--local`, `--jobs=6`) */
+const cliArgs = process.argv.slice(2);
+const ttsFlags = cliArgs.filter((a) => a.startsWith("--"));
+const positionals = cliArgs.filter((a) => !a.startsWith("--"));
+const xlsxPath = positionals[0];
 const outPath =
-  process.argv[3] ??
+  positionals[1] ??
   path.join(__dirname, "../loopin-web/src/data/problem-bank.json");
 
 if (!xlsxPath) {
@@ -130,6 +134,10 @@ function sheetUnitToUi(v) {
 const TEXTBOOK_ALIASES = {
   "능률(김)": "NE능률(김)",
   "NE능률(김)": "NE능률(김)",
+  // 시트가 쓰는 표기 ↔ 화면 드롭다운 표기가 다른 것들. 여기서 맞춰 두지 않으면
+  // 데이터는 들어가는데 그 교과서를 골라도 「빈 단원」으로 보인다.
+  "미래앤(문)": "미래엔(문)",
+  "천재(이상기)": "천재(이)",
 };
 
 function sheetTextbookToUi(v) {
@@ -167,7 +175,22 @@ function getSheetNames(workbookXml, relsXml) {
 }
 
 function headerIndex(header) {
-  return Object.fromEntries(header.map((h, i) => [decodeXml(h), i]));
+  // 열 이름의 띄어쓰기는 양식마다 들쭉날쭉하다(「단어 뜻」/「단어뜻」).
+  // 공백을 뺀 이름도 같이 등록해 두면 둘 중 무엇으로 적혀 있어도 찾는다.
+  const idx = {};
+  header.forEach((h, i) => {
+    const name = decodeXml(h);
+    if (name && idx[name] === undefined) idx[name] = i;
+    const compact = name.replace(/s+/g, "");
+    if (compact && idx[compact] === undefined) idx[compact] = i;
+  });
+  return idx;
+}
+
+/** 기초단어 표시는 양식마다 「O」이기도 하고 「1」이기도 하다. */
+function isBasicFlag(v) {
+  const s = v.trim().toLowerCase();
+  return s === "o" || s === "y" || s === "true" || Number(s) > 0;
 }
 
 /**
@@ -181,7 +204,7 @@ function headerIndex(header) {
  * 청크 열의 `" / "`는 공백이 한 칸씩이라 이 정리에 영향받지 않는다.
  */
 function cell(row, idx, key) {
-  const i = idx[key];
+  const i = idx[key] ?? idx[key.replace(/s+/g, "")];
   if (i === undefined) return "";
   return decodeXml(row[i] ?? "")
     .replace(/[\s ]+/g, " ")
@@ -368,7 +391,11 @@ for (const meta of sheetMeta) {
         grade,
         unit,
         category: lastCategory,
-        isBasicWord: cell(r, idx, "기초단어 여부").toLowerCase() === "o",
+        isBasicWord: isBasicFlag(
+          cell(r, idx, "기초단어 여부") ||
+            cell(r, idx, "기초단어 표시") ||
+            cell(r, idx, "기초단어")
+        ),
         english,
         korean,
         // 예문은 자체 창작만 싣는다. 열 이름이 양식마다 다르다 — **단어 시트 안에서는**
@@ -478,6 +505,25 @@ console.log(
 );
 
 /*
+  **문제은행이 바뀌면 교사 웹이 받아 쓰는 조각도 다시 만든다.**
+
+  단어가 9,590개가 되면서 problem-bank.json이 2.9MB다. 교사 웹은 이 파일을 통째로
+  번들에 넣지 않고 `public/problem-bank/bNN.json` 조각으로 나눠 받는다. 여기서 같이
+  만들어 두지 않으면 **JSON만 새것이고 화면은 옛 조각**을 보는 상태가 된다.
+*/
+const splitScript = path.join(__dirname, "split-problem-bank.mjs");
+if (fs.existsSync(splitScript)) {
+  const split = spawnSync(process.execPath, [splitScript, outPath], {
+    stdio: "inherit",
+  });
+  if (split.status !== 0) {
+    console.warn(
+      "조각 만들기가 끝나지 못했습니다. `node scripts/split-problem-bank.mjs`를 직접 돌려 주세요.",
+    );
+  }
+}
+
+/*
   **문제은행이 바뀌면 학생 앱의 미리 만든 음성도 같이 갱신한다.**
 
   학생 앱은 단어·문장 음성을 파일로 들고 있다(`public/assets/audio/`). 여기서 텍스트를
@@ -511,7 +557,12 @@ if (fs.existsSync(ttsScript)) {
   }
   const r = spawnSync(
     process.execPath,
-    [ttsScript, outPath, ...(extraFile ? [`--extra=${extraFile}`] : [])],
+    [
+      ttsScript,
+      outPath,
+      ...(extraFile ? [`--extra=${extraFile}`] : []),
+      ...ttsFlags,
+    ],
     { stdio: "inherit" }
   );
   if (extraFile) fs.rmSync(path.dirname(extraFile), { recursive: true, force: true });

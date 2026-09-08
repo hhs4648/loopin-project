@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { finishTeacherSocialLogin } from "@/lib/sync/teacher-auth";
+import { hydrateTeacherWorkspace } from "@/lib/sync/teacher-hydrate";
 import { getSupabase } from "@/lib/sync/supabase-client";
 
 /**
@@ -72,6 +73,12 @@ export function TeacherAuthCallback() {
         setFailed(true);
         return;
       }
+
+      setStage("수업 불러오는 중");
+      await Promise.race([
+        hydrateTeacherWorkspace(),
+        new Promise((resolve) => window.setTimeout(resolve, 12_000)),
+      ]);
 
       router.replace("/teacher");
     })().catch((error) => {

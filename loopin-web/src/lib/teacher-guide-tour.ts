@@ -168,7 +168,7 @@ export const GUIDE_TOURS: Record<StartGuideStepId, GuideTour> = {
         id: "code",
         anchor: "invite-code",
         title: "학생 초대 코드가 여기 있어요",
-        body: "이 여섯 자리를 학생에게 알려주세요. 학생이 앱에 넣으면 반에 들어옵니다. 옆의 「복사」로 클립보드에 담을 수 있고, 반 홈에 늘 있으니 나중에 다시 와도 됩니다.",
+        body: "다음 수업 카드 안의 여섯 자리를 학생에게 알려주세요. 학생이 앱에 넣으면 반에 들어옵니다. 「복사」로 클립보드에 담을 수 있고, 반 홈 위에 늘 있으니 나중에 다시 와도 됩니다.",
         advance: "optional",
       },
     ],

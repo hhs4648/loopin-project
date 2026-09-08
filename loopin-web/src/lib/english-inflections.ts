@@ -231,47 +231,64 @@ function escapeRegExp(text: string): string {
 }
 
 /**
- * 표제어 자리 표시. 본문에는 아무 단어나 들어가도 같은 표현으로 본다.
- * `keep ~ from ~`, `keep 'A' from 'B'`, `keep A from B`
+ * 표제어 자리 표시.
+ * - `~` : 아무 단어나, **없어도 됨** (`draw ~ attention to` → `draw attention to` / `drew my attention to`)
+ * - `A` / `B` / `'A'` : 그 자리에 단어가 있어야 함 (`keep A from B` → `keep kids from playing`)
  */
-const LEMMA_SLOT_TOKEN =
-  /^(?:[~～〜]+(?:-?ing)?|[''"‘’“”][A-Za-z][''"‘’“”]|[A-DXYZ]|sb\.?|sth\.?)$/i;
+const TILDE_CHARS = "[~～〜∼˜]";
+
+function slotKind(token: string): "tilde" | "named" | null {
+  const t = token.trim();
+  if (new RegExp(`^${TILDE_CHARS}+(?:-?ing)?$`, "i").test(t)) return "tilde";
+  if (/^(?:sb\.?|sth\.?)$/i.test(t)) return "named";
+  if (/^(?:[''"‘’“”])?[A-DXYZ](?:[''’]s)?(?:[''"‘’“”])?$/.test(t)) return "named";
+  return null;
+}
+
+/** `draw~ attention`처럼 붙인 ~도 자리로 본다 */
+function lemmaTokens(lemma: string): string[] {
+  return lemma
+    .replace(new RegExp(`([A-Za-z0-9])(${TILDE_CHARS}+)`, "g"), "$1 $2")
+    .replace(new RegExp(`(${TILDE_CHARS}+)([A-Za-z0-9])`, "g"), "$1 $2")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
 
 export function isLemmaSlotToken(token: string): boolean {
-  return LEMMA_SLOT_TOKEN.test(token.trim());
+  return slotKind(token) !== null;
 }
 
 export function lemmaHasSlots(lemma: string): boolean {
-  return lemma
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .some(isLemmaSlotToken);
+  return lemmaTokens(lemma).some(isLemmaSlotToken);
 }
 
 /**
  * 자리 표시가 있는 표제어를 본문에서 찾기 위한 패턴.
- * 가운데 `~`는 한 단어 이상, 맨 뒤 `~`는 없어도 되고 있으면 한 단어까지.
+ * 가운데 `~`는 없어도 되고, `A`/`B`는 한 단어 이상, 맨 뒤 자리는 없어도 된다.
  */
 export function lemmaSlotPattern(lemma: string): string | null {
-  const tokens = lemma.trim().split(/\s+/).filter(Boolean);
+  const tokens = lemmaTokens(lemma);
   if (tokens.length === 0 || !tokens.some(isLemmaSlotToken)) return null;
 
   const fill = "[A-Za-z0-9][A-Za-z0-9'-]*";
+  const optionalFill = `(?:\\s+${fill}(?:\\s+${fill})*)?`;
+  const requiredFill = `\\s+${fill}(?:\\s+${fill})*?`;
   const chunks: string[] = [];
   let inflectedLiteral = false;
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!;
     const last = index === tokens.length - 1;
     const atStart = chunks.length === 0;
+    const kind = slotKind(token);
 
-    if (isLemmaSlotToken(token)) {
+    if (kind) {
       if (last) {
         chunks.push(`(?:\\s+${fill})?`);
       } else if (atStart) {
-        chunks.push(fill);
+        chunks.push(kind === "tilde" ? `(?:${fill}(?:\\s+${fill})*\\s+)?` : fill);
       } else {
-        chunks.push(`\\s+${fill}(?:\\s+${fill})*?`);
+        chunks.push(kind === "tilde" ? optionalFill : requiredFill);
       }
       continue;
     }

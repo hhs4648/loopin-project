@@ -1,4 +1,5 @@
 import { parseIsoDateLocal, type TeacherClass } from "@/lib/teacher-classes";
+import { scheduleTeacherWorkspaceSync } from "@/lib/sync/teacher-workspace-schedule";
 
 export type OneOffLesson = {
   id: string;
@@ -39,6 +40,7 @@ export function loadOneOffLessons(): OneOffLesson[] {
 
 export function saveOneOffLessons(lessons: OneOffLesson[]): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lessons));
+  scheduleTeacherWorkspaceSync();
 }
 
 export function createOneOffLessonId(): string {

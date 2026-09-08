@@ -68,6 +68,7 @@ export function SchoolSettingsPanel({
               mark={mark}
               showImage={showImage}
               imageUrl={draft.markImageDataUrl}
+              photoMode={draft.markMode === "image"}
               size={40}
             />
             <span className="truncate text-[17px] font-bold leading-none text-[#16150F]">
@@ -107,6 +108,7 @@ export function SchoolSettingsPanel({
                 mark={mark}
                 showImage={showImage}
                 imageUrl={draft.markImageDataUrl}
+                photoMode={draft.markMode === "image"}
                 size={44}
               />
 
@@ -167,6 +169,7 @@ export function SchoolSettingsPanel({
         </div>
       </section>
 
+      {draft.markMode === "text" ? (
       <section className="min-h-0 flex-1 rounded-[14px] bg-white px-7 py-6">
         <h3 className="text-[18px] font-bold leading-none text-[#15171A]">
           브랜드 색상
@@ -206,6 +209,7 @@ export function SchoolSettingsPanel({
           })}
         </div>
       </section>
+      ) : null}
     </div>
   );
 }
@@ -215,24 +219,31 @@ function MarkBadge({
   mark,
   showImage,
   imageUrl,
+  photoMode,
   size,
 }: {
   color: string;
   mark: string;
   showImage: boolean;
   imageUrl?: string;
+  photoMode: boolean;
   size: number;
 }) {
   return (
     <div
       className="flex shrink-0 items-center justify-center overflow-hidden rounded-[11px] text-white"
-      style={{ width: size, height: size, backgroundColor: color }}
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: photoMode ? "#FFFFFF" : color,
+        boxShadow: photoMode ? "inset 0 0 0 1px rgba(0,0,0,0.08)" : undefined,
+      }}
       aria-hidden
     >
       {showImage && imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={imageUrl} alt="" className="h-full w-full object-cover" />
-      ) : mark ? (
+      ) : !photoMode && mark ? (
         <span
           className="flex h-full w-full items-center justify-center font-bold"
           style={{

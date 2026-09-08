@@ -16,6 +16,7 @@ import {
   upsertCustomWord,
 } from "@/lib/custom-problem-bank";
 import { getUnitIdioms } from "@/lib/problem-bank";
+import { useUnitBank } from "@/lib/use-unit-bank";
 import type {
   ProblemGrammar,
   ProblemSentence,
@@ -28,6 +29,8 @@ import {
 } from "@/lib/ai/phrase-chunks";
 import { validateProblemItemInput } from "@/lib/validate-problem-item";
 import { ensureWordCloze } from "@/lib/word-cloze";
+import { SentenceAddSheet } from "@/components/teacher/SentenceAddSheet";
+import { WordAddSheet } from "@/components/teacher/WordAddSheet";
 
 export type AddProblemKind = "word" | "sentence" | "grammar";
 
@@ -47,8 +50,10 @@ type AddProblemItemModalProps = {
   kind: AddProblemKind | null;
   scope: Scope | null;
   editing?: EditingProblemItem | null;
+  existingWords?: ProblemWord[];
+  existingSentences?: ProblemSentence[];
   onClose: () => void;
-  onCreated: (kind: AddProblemKind, id: string) => void;
+  onCreated: (kind: AddProblemKind, ids: string[]) => void;
 };
 
 const KIND_META: Record<
@@ -67,7 +72,7 @@ const KIND_META: Record<
     editTitle: "단어 수정",
     submit: "단어 추가",
     editSubmit: "저장",
-    hint: "예문에 같은 단어나 활용형(held 등)이 있으면 빈칸이 자동으로 생겨요.",
+    hint: "엑셀에서 복사해 빈 칸에 붙여 넣은 뒤 적용해요. 기초에 체크하면 기초단어로 저장되고, 예문에 같은 단어나 활용형이 있으면 빈칸이 자동으로 생겨요.",
     editHint: "",
   },
   sentence: {
@@ -75,7 +80,7 @@ const KIND_META: Record<
     editTitle: "본문 수정",
     submit: "본문 추가",
     editSubmit: "저장",
-    hint: "영어·한글 예문을 넣고, 청크는 `/`로 나눌 수 있어요.",
+    hint: "엑셀에서 복사해 빈 칸에 붙여 넣은 뒤 적용해요. 청크는 「자동 나눔」이나 「청크 자동 나누기」로 채울 수 있어요.",
     editHint: "교과서·직접 추가 본문을 수정해요. 원본 JSON은 바뀌지 않아요.",
   },
   grammar: {
@@ -127,15 +132,20 @@ export function AddProblemItemModal({
   kind,
   scope,
   editing = null,
+  existingWords = [],
+  existingSentences = [],
   onClose,
   onCreated,
 }: AddProblemItemModalProps) {
+  /* 「자동 나눔」이 이 단원 숙어를 읽는다 — 교과서 조각을 받아 둔다 */
+  useUnitBank(scope);
   const titleId = useId();
   const firstRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
 
   const [english, setEnglish] = useState("");
   const [korean, setKorean] = useState("");
+  const [isBasicWord, setIsBasicWord] = useState(false);
   const [exampleEn, setExampleEn] = useState("");
   const [exampleKo, setExampleKo] = useState("");
   const [chunksEn, setChunksEn] = useState("");
@@ -157,6 +167,7 @@ export function AddProblemItemModal({
         const item = editing.item;
         setEnglish(item.english);
         setKorean(item.korean);
+        setIsBasicWord(item.isBasicWord === true);
         setExampleEn(item.exampleEn ?? "");
         setExampleKo(item.exampleKo ?? "");
         setChunksEn("");
@@ -196,6 +207,7 @@ export function AddProblemItemModal({
     } else {
       setEnglish("");
       setKorean("");
+      setIsBasicWord(false);
       setExampleEn("");
       setExampleKo("");
       setChunksEn("");
@@ -255,12 +267,13 @@ export function AddProblemItemModal({
         korean: ko,
         exampleEn: ensureWordCloze(exampleEn, en) ?? exampleEn,
         exampleKo,
+        isBasicWord,
       };
       const saved =
         isEdit && editing?.kind === "word"
           ? upsertCustomWord(editing.item, payload)
           : appendCustomWord(payload);
-      onCreated("word", saved.id);
+      onCreated("word", [saved.id]);
       onClose();
       return;
     }
@@ -278,7 +291,7 @@ export function AddProblemItemModal({
         isEdit && editing?.kind === "sentence"
           ? upsertCustomSentence(editing.item, payload)
           : appendCustomSentence(payload);
-      onCreated("sentence", saved.id);
+      onCreated("sentence", [saved.id]);
       onClose();
       return;
     }
@@ -298,7 +311,7 @@ export function AddProblemItemModal({
       isEdit && editing?.kind === "grammar"
         ? upsertCustomGrammar(editing.item, payload)
         : appendCustomGrammar(payload);
-    onCreated("grammar", saved.id);
+      onCreated("grammar", [saved.id]);
     onClose();
   }
 
@@ -311,14 +324,20 @@ export function AddProblemItemModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[92%] w-full max-w-[480px] flex-col overflow-hidden rounded-[18px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)]"
+        className={`flex max-h-[92%] w-full flex-col overflow-hidden rounded-[18px] bg-white shadow-[0_18px_60px_rgba(15,23,42,0.18)] ${
+          kind === "word" && !isEdit
+            ? "max-w-[980px]"
+            : kind === "sentence" && !isEdit
+              ? "max-w-[1100px]"
+              : "max-w-[480px]"
+        }`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[#F0F1F3] px-5 py-4">
           <div className="min-w-0">
             <h2
               id={titleId}
-              className="text-[16px] font-bold tracking-[-0.02em] text-[#15171A]"
+              className="text-[16px] font-bold tracking-[0.04em] text-[#15171A]"
             >
               {isEdit ? meta.editTitle : meta.title}
             </h2>
@@ -348,6 +367,21 @@ export function AddProblemItemModal({
           </button>
         </div>
 
+        {kind === "word" && !isEdit ? (
+          <WordAddSheet
+            scope={scope}
+            existingWords={existingWords}
+            onClose={onClose}
+            onApplied={(ids) => onCreated("word", ids)}
+          />
+        ) : kind === "sentence" && !isEdit ? (
+          <SentenceAddSheet
+            scope={scope}
+            existingSentences={existingSentences}
+            onClose={onClose}
+            onApplied={(ids) => onCreated("sentence", ids)}
+          />
+        ) : (
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
           <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto px-5 py-4">
             <div>
@@ -391,6 +425,17 @@ export function AddProblemItemModal({
 
             {kind === "word" ? (
               <>
+                <label className="flex items-center gap-2 rounded-[10px] border border-[#E5E7EB] bg-[#FAFBFC] px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={isBasicWord}
+                    onChange={(event) => setIsBasicWord(event.target.checked)}
+                    className="h-4 w-4 accent-[#1AA7F2]"
+                  />
+                  <span className="text-[13px] font-semibold text-[#374151]">
+                    기초단어
+                  </span>
+                </label>
                 <div>
                   <FieldLabel htmlFor="add-ex-en">
                     예문 (영어)
@@ -615,6 +660,7 @@ export function AddProblemItemModal({
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

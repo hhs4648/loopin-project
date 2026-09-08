@@ -89,6 +89,7 @@ export type CustomWordInput = {
   korean: string;
   exampleEn?: string;
   exampleKo?: string;
+  isBasicWord?: boolean;
 };
 
 export type CustomSentenceInput = {
@@ -127,7 +128,7 @@ function buildWord(
     grade: input.grade,
     unit: input.unit,
     category: base?.category ?? "직접 추가",
-    isBasicWord: base?.isBasicWord ?? false,
+    isBasicWord: input.isBasicWord ?? base?.isBasicWord ?? false,
     english: input.english.trim(),
     korean: input.korean.trim(),
     exampleEn: (input.exampleEn ?? "").trim(),
@@ -199,6 +200,33 @@ export function appendCustomWord(input: CustomWordInput): ProblemWord {
   return item;
 }
 
+/**
+ * 단어 표에서 한 번에 저장한다.
+ * `source`가 있으면 같은 id로 덮고, 없으면 새로 만든다.
+ */
+export function applyCustomWordRows(
+  rows: Array<{ source?: ProblemWord; input: CustomWordInput }>,
+): { saved: ProblemWord[]; createdIds: string[] } {
+  const bank = loadRaw();
+  let words = [...bank.words];
+  const saved: ProblemWord[] = [];
+  const createdIds: string[] = [];
+  for (const row of rows) {
+    if (row.source) {
+      const item = buildWord(row.input, row.source.id, row.source);
+      words = upsertById(words, item);
+      saved.push(item);
+      continue;
+    }
+    const item = buildWord(row.input, createId("word-custom"));
+    words = [...words, item];
+    saved.push(item);
+    createdIds.push(item.id);
+  }
+  saveRaw({ ...bank, words });
+  return { saved, createdIds };
+}
+
 export function appendCustomSentence(
   input: CustomSentenceInput,
 ): ProblemSentence {
@@ -206,6 +234,33 @@ export function appendCustomSentence(
   const item = buildSentence(input, createId("sent-custom"));
   saveRaw({ ...bank, sentences: [...bank.sentences, item] });
   return item;
+}
+
+/**
+ * 본문 표에서 한 번에 저장한다.
+ * `source`가 있으면 같은 id로 덮고, 없으면 새로 만든다.
+ */
+export function applyCustomSentenceRows(
+  rows: Array<{ source?: ProblemSentence; input: CustomSentenceInput }>,
+): { saved: ProblemSentence[]; createdIds: string[] } {
+  const bank = loadRaw();
+  let sentences = [...bank.sentences];
+  const saved: ProblemSentence[] = [];
+  const createdIds: string[] = [];
+  for (const row of rows) {
+    if (row.source) {
+      const item = buildSentence(row.input, row.source.id, row.source);
+      sentences = upsertById(sentences, item);
+      saved.push(item);
+      continue;
+    }
+    const item = buildSentence(row.input, createId("sent-custom"));
+    sentences = [...sentences, item];
+    saved.push(item);
+    createdIds.push(item.id);
+  }
+  saveRaw({ ...bank, sentences });
+  return { saved, createdIds };
 }
 
 /** 문제 제출 「본문」칸에서 만든 문장 id 접두사 — 다시 나누면 이 묶음만 갈아끼운다 */

@@ -37,6 +37,7 @@ export type ProblemWordSnapshot = {
   korean: string;
   exampleEn?: string;
   exampleKo?: string;
+  isBasicWord?: boolean;
 };
 
 export type ProblemSentenceSnapshot = {

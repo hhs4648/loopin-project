@@ -1,4 +1,4 @@
-import bankData from "@/data/problem-bank.json";
+import bankIndex from "@/data/problem-bank-index.json";
 import { loadCustomProblemBank } from "@/lib/custom-problem-bank";
 
 export type ProblemWord = {
@@ -50,14 +50,129 @@ export type ProblemBankQuery = {
   unit: string;
 };
 
-type BankFile = {
-  words?: ProblemWord[];
-  sentences?: ProblemSentence[];
-  grammar?: ProblemGrammar[];
-  items?: ProblemWord[];
+export type ProblemBankChunk = {
+  words: ProblemWord[];
+  sentences: ProblemSentence[];
+  grammar: ProblemGrammar[];
 };
 
-const data = bankData as BankFile;
+/**
+ * **문제은행은 교과서 단위로 나눠 받는다.**
+ *
+ * 단어가 9,590개가 되면서 `problem-bank.json`이 2.9MB가 됐다. 예전처럼 통째로 import하면
+ * 문제 출제 화면을 열 때마다 그 2.9MB가 번들에 실려 나간다 — 선생님이 실제로 쓰는 건
+ * 자기 교과서 한 종뿐인데도. 그래서 `scripts/split-problem-bank.mjs`가 `(학년·교과서)`
+ * 단위로 잘라 `public/problem-bank/bNN.json`에 두고, 번들에는 목록·개수·숙어만 담긴
+ * 인덱스(40KB)만 남긴다.
+ *
+ * 읽기(`getUnitContent`)는 **예전처럼 동기**다. 대신 그 단원 조각이 먼저 받아져 있어야
+ * 한다 — 화면은 `useUnitBank`(`@/lib/use-unit-bank`)가 알아서 받고, 저장된 과제를 다루는
+ * 흐름은 `ensureUnitsLoaded`로 미리 받아 둔다. 안 받힌 채로 읽으면 개발 모드에서 경고가
+ * 뜬다(운영에서는 조용히 빈 목록 — 화면이 깨지는 것보다 낫다).
+ */
+const EMPTY_CHUNK: ProblemBankChunk = { words: [], sentences: [], grammar: [] };
+
+const CHUNK_IDS = bankIndex.chunks as Record<string, string>;
+
+/** 단원별 항목 수 — 조각을 안 받고도 목록·개수를 그릴 수 있다 */
+export type ProblemBankScope = {
+  grade: string;
+  textbook: string;
+  unit: string;
+  words: number;
+  sentences: number;
+  grammar: number;
+};
+export const problemBankScopes = bankIndex.scopes as ProblemBankScope[];
+
+const loadedChunks = new Map<string, ProblemBankChunk>();
+const pendingChunks = new Map<string, Promise<ProblemBankChunk>>();
+const listeners = new Set<() => void>();
+const warned = new Set<string>();
+
+function chunkIdFor(query: Pick<ProblemBankQuery, "grade" | "textbook">): string | null {
+  return CHUNK_IDS[`${query.grade}|${query.textbook}`] ?? null;
+}
+
+function notify(): void {
+  for (const listener of [...listeners]) listener();
+}
+
+/** 조각이 받아졌을 때 다시 그리도록 — `useUnitBank`가 쓴다 */
+export function subscribeProblemBank(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** 그 교과서 조각이 이미 있는지 (데이터가 아예 없는 교과서면 받을 것도 없으므로 true) */
+export function isUnitLoaded(query: Pick<ProblemBankQuery, "grade" | "textbook">): boolean {
+  const id = chunkIdFor(query);
+  return !id || loadedChunks.has(id);
+}
+
+/** 그 교과서 조각을 받아 둔다. 같은 조각을 여러 번 불러도 요청은 한 번이다. */
+export async function ensureUnitLoaded(
+  query: Pick<ProblemBankQuery, "grade" | "textbook">,
+): Promise<void> {
+  const id = chunkIdFor(query);
+  if (!id || loadedChunks.has(id)) return;
+  if (typeof window === "undefined") return;
+
+  let pending = pendingChunks.get(id);
+  if (!pending) {
+    pending = fetch(`/problem-bank/${id}.json`)
+      .then((res) => (res.ok ? (res.json() as Promise<ProblemBankChunk>) : EMPTY_CHUNK))
+      .catch(() => EMPTY_CHUNK)
+      .then((chunk) => {
+        loadedChunks.set(id, {
+          words: chunk.words ?? [],
+          sentences: chunk.sentences ?? [],
+          grammar: chunk.grammar ?? [],
+        });
+        pendingChunks.delete(id);
+        notify();
+        return chunk;
+      });
+    pendingChunks.set(id, pending);
+  }
+  await pending;
+}
+
+/**
+ * 여러 단원 조각을 한꺼번에 받아 둔다.
+ * 저장된 과제를 다루는 흐름(스냅샷·동기화·오답 학습지)은 지금 화면에 없는 단원도
+ * 읽으므로, 그 과제들의 교과서를 미리 받아 두는 자리에서 쓴다.
+ */
+export async function ensureUnitsLoaded(
+  queries: Pick<ProblemBankQuery, "grade" | "textbook">[],
+): Promise<void> {
+  const seen = new Set<string>();
+  const jobs: Promise<void>[] = [];
+  for (const query of queries) {
+    const key = `${query.grade}|${query.textbook}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    jobs.push(ensureUnitLoaded(query));
+  }
+  await Promise.all(jobs);
+}
+
+function getChunk(query: ProblemBankQuery): ProblemBankChunk {
+  const id = chunkIdFor(query);
+  if (!id) return EMPTY_CHUNK;
+  const chunk = loadedChunks.get(id);
+  if (chunk) return chunk;
+  if (process.env.NODE_ENV !== "production" && !warned.has(id)) {
+    warned.add(id);
+    console.warn(
+      `[problem-bank] ${query.grade} ${query.textbook} 조각을 안 받은 채로 읽었습니다. ` +
+        "화면이면 useUnitBank, 그 밖이면 ensureUnitsLoaded를 먼저 부르세요.",
+    );
+  }
+  return EMPTY_CHUNK;
+}
 
 function matchScope<T extends { grade: string; textbook: string; unit: string }>(
   list: T[],
@@ -73,6 +188,7 @@ function matchScope<T extends { grade: string; textbook: string; unit: string }>
 
 export function getUnitContent(query: ProblemBankQuery) {
   const custom = loadCustomProblemBank();
+  const chunk = getChunk(query);
 
   const merge = <T extends { id: string; grade: string; textbook: string; unit: string }>(
     bankItems: T[],
@@ -93,10 +209,16 @@ export function getUnitContent(query: ProblemBankQuery) {
   };
 
   return {
-    words: merge(data.words ?? data.items ?? [], custom.words),
-    sentences: merge(data.sentences ?? [], custom.sentences),
-    grammar: merge(data.grammar ?? [], custom.grammar),
+    words: merge(chunk.words, custom.words),
+    sentences: merge(chunk.sentences, custom.sentences),
+    grammar: merge(chunk.grammar, custom.grammar),
   };
+}
+
+/** 조각을 받은 뒤 읽는다 — 지금 화면에 없는 단원을 다룰 때 쓴다 */
+export async function loadUnitContent(query: ProblemBankQuery) {
+  await ensureUnitLoaded(query);
+  return getUnitContent(query);
 }
 
 /**
@@ -113,16 +235,18 @@ export function getUnitIdioms(query: ProblemBankQuery): string[] {
 /**
  * 단원 구분 없이 알고 있는 숙어 전부.
  * 사용자 지정 과제처럼 교과서 단원이 정해지지 않은 흐름에서 쓴다.
+ *
+ * 조각을 안 받아도 되도록 **인덱스에 미리 뽑아 둔 목록**을 쓴다(9,590개 중 902개뿐).
  */
 export function getAllIdioms(): string[] {
   const custom = loadCustomProblemBank();
-  const all = [...(data.words ?? data.items ?? []), ...custom.words];
   return [
-    ...new Set(
-      all
+    ...new Set([
+      ...(bankIndex.idioms as string[]),
+      ...custom.words
         .map((word) => word.english.trim())
         .filter((english) => /\s/.test(english)),
-    ),
+    ]),
   ];
 }
 

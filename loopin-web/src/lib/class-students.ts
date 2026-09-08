@@ -1,3 +1,5 @@
+import { scheduleTeacherWorkspaceSync } from "@/lib/sync/teacher-workspace-schedule";
+
 export type ClassStudent = {
   id: string;
   name: string;
@@ -7,10 +9,23 @@ export type ClassStudent = {
   source?: "enrolled" | "manual";
 };
 
-const STORAGE_KEY = "haksup-class-students";
+const STORAGE_PREFIX = "haksup-class-students:";
 
 function storageKey(classId: string): string {
-  return `${STORAGE_KEY}:${classId}`;
+  return `${STORAGE_PREFIX}${classId}`;
+}
+
+export function loadAllClassStudents(): Record<string, ClassStudent[]> {
+  if (typeof window === "undefined") return {};
+  const out: Record<string, ClassStudent[]> = {};
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(STORAGE_PREFIX)) continue;
+    const classId = key.slice(STORAGE_PREFIX.length);
+    if (!classId) continue;
+    out[classId] = loadClassStudents(classId);
+  }
+  return out;
 }
 
 export function loadClassStudents(classId: string): ClassStudent[] {
@@ -30,10 +45,12 @@ export function saveClassStudents(
   students: ClassStudent[],
 ): void {
   window.localStorage.setItem(storageKey(classId), JSON.stringify(students));
+  scheduleTeacherWorkspaceSync();
 }
 
 export function clearClassStudents(classId: string): void {
   window.localStorage.removeItem(storageKey(classId));
+  scheduleTeacherWorkspaceSync();
 }
 
 export function createStudentId(name: string): string {
