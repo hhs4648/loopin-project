@@ -121,5 +121,7 @@ The living product spec lives one directory **above** this repo, in `loopin-proj
 | 선택지 개수 | `validate-problem-item.ts` (교정 문제 3개 필수) | `buildOxXCorrection`이 3개 미만이면 문항을 만들지 않음 |
 | 스냅샷 형태 | `src/lib/sync/content-snapshot.ts` | `src/lib/sync/types.ts`의 `ContentSnapshot` |
 | 문법 개념 | `content-snapshot.ts`가 문제은행 `major`/`minor`를 스냅샷에 싣는다 | 복습 탭이 `grammar[].major`로 유형을 가른다 (`features/review/review-types.ts`) |
+| 예문 빈칸 | `extractCloze` (`src/lib/word-cloze.ts`) — 자리 있는 숙어는 `[takes] … [to]`처럼 **실제 단어만** 여러 빈칸 | 학생앱 `WordSpellScreen`도 `parts`를 같은 자리에 빈칸으로 그려야 한다. `answer`는 빈칸을 공백으로 이은 값(`takes to`) |
+| 사전에 없는 표기(`messi10:`) | `src/lib/ai/given-chunks.ts` — 번역·청크 배열은 처음부터 박아 두고, 영작은 빈칸을 만들지 않는다 | **같은 파일을 복사**해 `build-session-sections.ts`·본문 A/B/C 화면에 적용. 스냅샷 필드는 안 늘린다(기존 `chunksEn`/`chunksKo`를 같은 규칙으로 가른다) |
 
 문제집은 유형을 **라벨 문자열**로 저장한다(`savedTypeState`). 라벨을 바꾸면 과거 문제집이 조용히 깨지니, 목록에서 빼더라도 학생앱 빌더는 남겨 둔다.

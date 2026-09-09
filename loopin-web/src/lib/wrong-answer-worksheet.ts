@@ -1,4 +1,5 @@
 import { stripBrackets, stripMeaningParens } from "@/lib/problem-bank";
+import { sanitizeChunkParts } from "@/lib/ai/phrase-chunks";
 import { extractCloze } from "@/lib/word-cloze";
 import { buildContentSnapshot } from "@/lib/sync/content-snapshot";
 import type { SavedProblemSet } from "@/lib/problem-sets";
@@ -73,15 +74,19 @@ function canonicalWorksheetTypeKey(typeKey: string): string {
 function splitChunks(text: string | undefined, fallback: string): string[] {
   const source = text?.includes("/") ? text : fallback;
   if (source.includes("/")) {
-    return source
-      .split("/")
-      .map((part) => part.trim())
-      .filter(Boolean);
+    return sanitizeChunkParts(
+      source
+        .split("/")
+        .map((part) => part.trim())
+        .filter(Boolean),
+    );
   }
-  return stripBrackets(source)
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return sanitizeChunkParts(
+    stripBrackets(source)
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
 }
 
 function scrambleStable(parts: string[], seed: string): string[] {
@@ -166,7 +171,9 @@ function buildWordItem(
       typeLabel: label,
       promptLines: [
         stripBrackets(word.exampleKo || korean),
-        `${cloze.englishBefore}________${cloze.englishAfter}`,
+        `${cloze.parts
+          .map((part) => (part.kind === "blank" ? "________" : part.text))
+          .join("")}`,
       ],
       answerKey: `${cloze.answer} (${korean})`,
     };

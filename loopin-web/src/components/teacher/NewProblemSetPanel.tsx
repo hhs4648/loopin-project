@@ -102,7 +102,8 @@ import {
   pairPassageSentences,
   passageExampleForWord,
 } from "@/lib/passage-to-problems";
-import { assignedClassHomeHref } from "@/lib/class-tabs";
+import { ensureWordCloze } from "@/lib/word-cloze";
+import { sanitizeChunkLine } from "@/lib/ai/phrase-chunks";
 import { loadUnitPassage, saveUnitPassage } from "@/lib/unit-passages";
 
 const GRADE_OPTIONS = ["중1", "중2", "중3"] as const;
@@ -1396,7 +1397,7 @@ function WordBankList(props: BankListOwnProps<ProblemWord>) {
           </span>
           {item.exampleEn ? (
             <span className="mt-1 block text-[16px] text-[#374151]">
-              {item.exampleEn}
+              {ensureWordCloze(item.exampleEn, item.english) ?? item.exampleEn}
             </span>
           ) : null}
           {item.exampleKo ? (
@@ -1423,11 +1424,13 @@ function SentenceBankList(props: BankListOwnProps<ProblemSentence>) {
             {item.english}
           </span>
           {item.chunksKo ? (
-            <span className="mt-1 block text-[#6B7280]">{item.chunksKo}</span>
+            <span className="mt-1 block text-[#6B7280]">
+              {sanitizeChunkLine(item.chunksKo)}
+            </span>
           ) : null}
           {item.chunksEn ? (
             <span className="mt-1 block text-[15px] text-[#9CA3AF]">
-              청크: {item.chunksEn}
+              청크: {sanitizeChunkLine(item.chunksEn)}
             </span>
           ) : null}
         </span>
@@ -1612,6 +1615,9 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
   const [passageApplyError, setPassageApplyError] = useState("");
   const prevPassageRangeKeyRef = useRef<string | null>(null);
   const skipPassageAutosaveRef = useRef(true);
+  /** 직전에 「문장으로 나누기」로 본문에 맞춘 단원 단어 id — 기초단어 체크를 켜면 다시 고른다 */
+  const lastPassageMatchedWordIdsRef = useRef<Set<string>>(new Set());
+  const prevShowBasicWordsRef = useRef(showBasicWords);
   const passageDraftRef = useRef({
     rangeKey: "",
     unitSelected: false,
@@ -1880,6 +1886,7 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     setPartLocks(DEFAULT_PART_LOCKS);
     setPassageApplyNote("");
     setPassageApplyError("");
+    lastPassageMatchedWordIdsRef.current = new Set();
     if (!unitSelected) {
       setSelectedWordIds(new Set());
       setSelectedSentenceIds(new Set());
@@ -2085,6 +2092,9 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
     }
 
     const created = replaceCustomSentencesByPrefix(prefix, toCreate);
+    lastPassageMatchedWordIdsRef.current = new Set(
+      matchedWords.map((word) => word.id),
+    );
     for (const word of matchedWords) {
       const example = passageExampleForWord(pairs, word.english);
       if (!example) continue;
@@ -2096,13 +2106,17 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
         korean: word.korean,
         exampleEn: example.exampleEn,
         exampleKo: example.exampleKo,
+        isBasicWord: word.isBasicWord,
       });
     }
     setCustomBankTick((tick) => tick + 1);
 
     setSelectedWordIds((prev) => {
       const next = new Set(prev);
-      for (const word of matchedWords) next.add(word.id);
+      for (const word of matchedWords) {
+        // 기초단어 체크가 꺼져 있어도 예문은 넣어 두고, 목록에 보이는 것만 고른다
+        if (showBasicWords || !word.isBasicWord) next.add(word.id);
+      }
       return next;
     });
     setSelectedSentenceIds((prev) => {
@@ -2122,9 +2136,14 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
       koCount !== enCount
         ? ` 영어 ${enCount}문장 · 한글 ${koCount}문장이라 앞에서부터 맞춰 두었어요.`
         : "";
+    const hiddenBasicCount = showBasicWords
+      ? 0
+      : matchedWords.filter((word) => word.isBasicWord).length;
     const wordPart =
       matchedWords.length > 0
-        ? `단원 단어 ${matchedWords.length}개를 골라 본문 문장을 예문에 넣었어요.`
+        ? hiddenBasicCount > 0
+          ? `단원 단어 ${matchedWords.length}개를 골라 본문 문장을 예문에 넣었어요. 기초단어 ${hiddenBasicCount}개는 목록에 숨겨 두었고, 「기초단어」를 켜면 선택된 채 보입니다.`
+          : `단원 단어 ${matchedWords.length}개를 골라 본문 문장을 예문에 넣었어요.`
         : "본문에 단원 단어가 없어 단어는 고르지 않았어요.";
     const sentenceCount = existingIds.length + created.length;
     setPassageApplyNote(
@@ -2147,13 +2166,34 @@ export function ProblemsCreateForm(_props: ProblemsCreateFormProps) {
   };
 
   useEffect(() => {
-    if (showBasicWords) return;
-    const basicIds = new Set(
-      unitContent.words
-        .filter((word) => word.isBasicWord)
-        .map((word) => word.id),
-    );
-    if (basicIds.size === 0) return;
+    const wasShowing = prevShowBasicWordsRef.current;
+    prevShowBasicWordsRef.current = showBasicWords;
+    const basicIds = unitContent.words
+      .filter((word) => word.isBasicWord)
+      .map((word) => word.id);
+    if (basicIds.length === 0) return;
+
+    if (showBasicWords) {
+      // 방금 켠 때만 — 본문에 맞춰 둔 기초단어를 다시 고른다 (예문은 나누기 때 이미 넣음)
+      if (wasShowing) return;
+      const matched = lastPassageMatchedWordIdsRef.current;
+      const toAdd = basicIds.filter((id) => matched.has(id));
+      if (toAdd.length === 0) return;
+      setSelectedWordIds((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const id of toAdd) {
+          if (!next.has(id)) {
+            next.add(id);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      setExpanded((prev) => ({ ...prev, word: true }));
+      return;
+    }
+
     setSelectedWordIds((prev) => {
       let changed = false;
       const next = new Set(prev);

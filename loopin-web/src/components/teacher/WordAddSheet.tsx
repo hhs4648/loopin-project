@@ -51,7 +51,8 @@ function rowFromWord(word: ProblemWord): SheetRow {
     source: word,
     english: word.english,
     korean: word.korean,
-    exampleEn: word.exampleEn ?? "",
+    exampleEn:
+      ensureWordCloze(word.exampleEn, word.english) ?? word.exampleEn ?? "",
     exampleKo: word.exampleKo ?? "",
     isBasicWord: word.isBasicWord === true,
   };

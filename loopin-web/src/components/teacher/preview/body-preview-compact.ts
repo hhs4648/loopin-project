@@ -16,3 +16,7 @@ export const BODY_PREVIEW_TILE_CLASS =
 
 export const BODY_PREVIEW_PLACED_CLASS =
   "cursor-pointer rounded-[5px] border border-[#3C86FF] bg-white px-0.5 py-px shadow-none";
+
+/** 아이디·화자처럼 처음부터 정답으로 박아 두는 조각 */
+export const BODY_PREVIEW_GIVEN_CLASS =
+  "cursor-default rounded-[5px] border border-[#3C86FF] bg-[#EAF2FF] px-0.5 py-px shadow-none";

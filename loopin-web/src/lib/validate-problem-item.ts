@@ -46,13 +46,16 @@ export function validateProblemItemInput(input: {
     const exampleEn = (input.exampleEn ?? "").trim();
     if (!exampleEn) return null;
     const cloze = findExistingCloze(exampleEn);
+    const auto = wrapMatchingWord(stripBrackets(exampleEn), stripBrackets(en));
     if (cloze === "__multiple__") {
-      return "예문(영어)의 [빈칸]은 하나만 넣어 주세요.";
+      if (auto && auto === exampleEn) return null;
+      return "예문 빈칸이 표제어의 실제 단어와 맞아야 해요. 자리를 나타내는 A/B/~ 는 빈칸에 넣지 않습니다.";
     }
     if (cloze !== null && !isInflectedFormOf(cloze, stripBrackets(en))) {
+      if (auto && auto === exampleEn) return null;
       return `예문 빈칸 [${cloze}]이 영어 단어 "${en}"(활용형 포함)과 같아야 해요.`;
     }
-    if (cloze === null && !wrapMatchingWord(exampleEn, en)) {
+    if (cloze === null && !auto) {
       return `예문에 영어 단어 "${en}"이 없어요. 같은 단어나 활용형(held 등)을 넣으면 빈칸이 자동으로 생겨요.`;
     }
     return null;

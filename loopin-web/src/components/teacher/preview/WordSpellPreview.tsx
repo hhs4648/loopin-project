@@ -15,6 +15,8 @@ import {
   exerciseFeedbackTitleClass,
 } from "./exercise-typography";
 
+import type { ClozePart } from "@/lib/word-cloze";
+
 const ASSET = "/assets/student-preview/단어C.svg";
 
 const CARD = { x: 24, y: 200, w: 345, h: 176 };
@@ -40,6 +42,7 @@ export type WordSpellQuestion = {
   englishAfter: string;
   answer: string;
   answerHint: string;
+  parts?: ClozePart[];
 };
 
 type Tile = { id: string; letter: string; x: number; y: number; w: number; h: number };
@@ -214,32 +217,39 @@ function filledSlotClass(prefilled = false) {
 }
 
 function InlineAnswerLine({
-  slotCount,
+  slotStart = 0,
+  slotEnd,
   slots,
   tiles,
   spaceAfterSlotIndices,
   disabled,
   onSlotClick,
 }: {
-  slotCount: number;
+  slotStart?: number;
+  slotEnd: number;
   slots: (string | null)[];
   tiles: Tile[];
   spaceAfterSlotIndices: number[];
   disabled: boolean;
   onSlotClick: (slotIndex: number) => void;
 }) {
+  const slotCount = slotEnd - slotStart;
   const slotWidthClass =
     slotCount >= 12 ? "min-w-[9px]" : slotCount >= 9 ? "min-w-[10px]" : "min-w-[12px]";
-  const wordGroups = getAnswerWordGroups(slotCount, spaceAfterSlotIndices);
+  const localSpaces = spaceAfterSlotIndices
+    .filter((index) => index >= slotStart && index < slotEnd - 1)
+    .map((index) => index - slotStart);
+  const wordGroups = getAnswerWordGroups(slotCount, localSpaces);
 
   return (
     <span className="inline-flex max-w-full flex-wrap items-baseline gap-x-[0.35em] gap-y-1 align-baseline">
       {wordGroups.map((group, groupIndex) => (
         <span
-          key={`blank-word-${groupIndex}`}
+          key={`blank-word-${slotStart}-${groupIndex}`}
           className="inline-flex shrink items-baseline border-b-2 border-[#1E1E1E] pb-px"
         >
-          {group.map((slotIndex) => {
+          {group.map((localIndex) => {
+            const slotIndex = slotStart + localIndex;
             const tileId = slots[slotIndex];
             const letter = tileId ? getTile(tiles, tileId)?.letter : null;
             const isFilled = Boolean(letter);
@@ -348,16 +358,46 @@ export function WordSpellPreview({ question }: { question: WordSpellQuestion }) 
               {question.korean}
             </p>
             <p className={`${EXERCISE_PASSAGE_EN_CLASS} min-h-0 overflow-hidden leading-[1.45]`}>
-              {question.englishBefore}
-              <InlineAnswerLine
-                slotCount={spellingLength}
-                slots={slots}
-                tiles={tiles}
-                spaceAfterSlotIndices={spaceAfterSlotIndices}
-                disabled={!isPlaying}
-                onSlotClick={handleSlotClick}
-              />
-              {question.englishAfter}
+              {(() => {
+                const parts = question.parts;
+                if (!parts || parts.length === 0) {
+                  return (
+                    <>
+                      {question.englishBefore}
+                      <InlineAnswerLine
+                        slotEnd={spellingLength}
+                        slots={slots}
+                        tiles={tiles}
+                        spaceAfterSlotIndices={spaceAfterSlotIndices}
+                        disabled={!isPlaying}
+                        onSlotClick={handleSlotClick}
+                      />
+                      {question.englishAfter}
+                    </>
+                  );
+                }
+                let letterOffset = 0;
+                return parts.map((part, index) => {
+                  if (part.kind === "text") {
+                    return <span key={`text-${index}`}>{part.text}</span>;
+                  }
+                  const letterCount = part.text.replace(/\s/g, "").length;
+                  const slotStart = letterOffset;
+                  letterOffset += letterCount;
+                  return (
+                    <InlineAnswerLine
+                      key={`blank-${index}`}
+                      slotStart={slotStart}
+                      slotEnd={slotStart + letterCount}
+                      slots={slots}
+                      tiles={tiles}
+                      spaceAfterSlotIndices={spaceAfterSlotIndices}
+                      disabled={!isPlaying}
+                      onSlotClick={handleSlotClick}
+                    />
+                  );
+                });
+              })()}
             </p>
           </div>
         </div>

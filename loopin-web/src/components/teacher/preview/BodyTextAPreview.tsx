@@ -7,10 +7,12 @@ import { useScaleToFit } from "./use-scale-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   BODY_PREVIEW_EMPTY_HINT_CLASS,
+  BODY_PREVIEW_GIVEN_CLASS,
   BODY_PREVIEW_OPTION_CLASS,
   BODY_PREVIEW_PLACED_CLASS,
   BODY_PREVIEW_TILE_CLASS,
 } from "./body-preview-compact";
+import type { ChunkSlot } from "@/lib/ai/given-chunks";
 import {
   COLOR_CORRECT_BG,
   COLOR_WRONG_BG,
@@ -31,10 +33,10 @@ export type BodyTextAQuestion = {
   id: string;
   exampleEn: string;
   exampleKo: string;
-  segments: string[];
+  slots: ChunkSlot[];
 };
 
-type Tile = { id: string; segmentIndex: number; label: string };
+type Tile = { id: string; playableIndex: number; label: string };
 
 function shuffle<T>(items: T[]): T[] {
   const next = [...items];
@@ -45,11 +47,18 @@ function shuffle<T>(items: T[]): T[] {
   return next;
 }
 
+function playableSlots(slots: ChunkSlot[]): ChunkSlot[] {
+  return slots.filter((slot) => slot.kind === "playable");
+}
+
 function buildTiles(question: BodyTextAQuestion): Tile[] {
-  const indexed = question.segments.map((label, segmentIndex) => ({ label, segmentIndex }));
+  const indexed = playableSlots(question.slots).map((slot, playableIndex) => ({
+    label: slot.label,
+    playableIndex,
+  }));
   return shuffle(indexed).map((item, index) => ({
     id: `${question.id}-segment-${index}`,
-    segmentIndex: item.segmentIndex,
+    playableIndex: item.playableIndex,
     label: item.label,
   }));
 }
@@ -80,7 +89,9 @@ export function BodyTextAPreview({ question }: { question: BodyTextAQuestion }) 
 
   const handleSubmit = () => {
     if (!isPlaying || !allFilled) return;
-    const isCorrect = selectedTiles.every((tile, index) => tile.segmentIndex === index);
+    const isCorrect = selectedTiles.every(
+      (tile, index) => tile.playableIndex === index,
+    );
     setResult(isCorrect ? "correct" : "wrong");
   };
 
@@ -129,22 +140,52 @@ export function BodyTextAPreview({ question }: { question: BodyTextAQuestion }) 
             ref={sentenceContentRef}
             className="flex w-full flex-wrap items-center justify-center gap-1"
           >
-            {selectedTiles.length > 0 ? (
-              selectedTiles.map((tile, index) => (
-                <button
-                  key={`placed-${tile.id}-${index}`}
-                  type="button"
-                  className={`whitespace-nowrap ${BODY_PREVIEW_PLACED_CLASS}`}
-                  onClick={() => handlePlacedClick(index)}
-                >
-                  <span className={BODY_PREVIEW_OPTION_CLASS}>{tile.label}</span>
-                </button>
-              ))
-            ) : (
-              <p className={`text-center ${BODY_PREVIEW_EMPTY_HINT_CLASS}`}>
-                예문 뜻 조각을 순서대로 눌러 문장을 완성하세요
-              </p>
-            )}
+            {(() => {
+              const lastGivenIndex = question.slots.reduce(
+                (acc, slot, index) => (slot.kind === "given" ? index : acc),
+                -1,
+              );
+              const hasGiven = lastGivenIndex >= 0;
+              if (selectedTiles.length === 0 && !hasGiven) {
+                return (
+                  <p className={`text-center ${BODY_PREVIEW_EMPTY_HINT_CLASS}`}>
+                    예문 뜻 조각을 순서대로 눌러 문장을 완성하세요
+                  </p>
+                );
+              }
+              let playableCursor = 0;
+              return question.slots.map((slot, index) => {
+                if (slot.kind === "given") {
+                  return (
+                    <span
+                      key={`given-${index}`}
+                      className={`whitespace-nowrap ${BODY_PREVIEW_GIVEN_CLASS}`}
+                    >
+                      <span className={BODY_PREVIEW_OPTION_CLASS}>{slot.label}</span>
+                    </span>
+                  );
+                }
+                const placed = selectedTiles[playableCursor];
+                const placedIndex = playableCursor;
+                playableCursor += 1;
+                if (placed) {
+                  return (
+                    <button
+                      key={`placed-${placed.id}-${placedIndex}`}
+                      type="button"
+                      className={`whitespace-nowrap ${BODY_PREVIEW_PLACED_CLASS}`}
+                      onClick={() => handlePlacedClick(placedIndex)}
+                    >
+                      <span className={BODY_PREVIEW_OPTION_CLASS}>{placed.label}</span>
+                    </button>
+                  );
+                }
+                if (index < lastGivenIndex) {
+                  return <span key={`gap-${index}`} className="inline-block w-2" />;
+                }
+                return null;
+              });
+            })()}
           </div>
         </div>
 

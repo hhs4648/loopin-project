@@ -5,6 +5,7 @@ import type {
   ProblemWordSnapshot,
 } from "@/lib/sync/types";
 import { getUnitContent, stripMeaningParens } from "@/lib/problem-bank";
+import { sanitizeChunkLine } from "@/lib/ai/phrase-chunks";
 import type {
   CreateProblemSetInput,
   CustomAssignmentDraft,
@@ -43,8 +44,12 @@ function buildCustomDraftSnapshot(
       id: `custom-s-${item.sentenceIndex}`,
       english: item.english.trim(),
       korean: item.translationKo.trim(),
-      chunksEn: item.chunksEn.trim() || undefined,
-      chunksKo: item.chunksKo.trim() || undefined,
+      chunksEn: item.chunksEn.trim()
+        ? sanitizeChunkLine(item.chunksEn)
+        : undefined,
+      chunksKo: item.chunksKo.trim()
+        ? sanitizeChunkLine(item.chunksKo)
+        : undefined,
     }))
     .filter((item) => item.english);
 
@@ -125,8 +130,8 @@ export function buildContentSnapshot(
       id: s.id,
       english: s.english,
       korean: s.korean,
-      chunksEn: s.chunksEn,
-      chunksKo: s.chunksKo,
+      chunksEn: s.chunksEn ? sanitizeChunkLine(s.chunksEn) : s.chunksEn,
+      chunksKo: s.chunksKo ? sanitizeChunkLine(s.chunksKo) : s.chunksKo,
       wrongChunks: s.wrongChunks,
       hint: s.hint,
     }));

@@ -15,6 +15,7 @@ import {
   EXERCISE_PASSAGE_KO_CLASS,
   exerciseFeedbackTitleClass,
 } from "./exercise-typography";
+import { givenLetterMask } from "@/lib/ai/given-chunks";
 
 const ASSET = "/assets/student-preview/본문C.svg";
 const PASSAGE = { x: 17, y: 252, w: 306, h: 84 };
@@ -33,10 +34,17 @@ export type BodyTextCQuestion = {
 type BodyTextCDisplayChar =
   | { kind: "hint" | "filled" | "blank"; char: string; typeIndex: number }
   | { kind: "punct"; char: string }
+  | { kind: "given"; char: string }
   | { kind: "gap" };
 
 function countBodyTextCTypeableLetters(exampleEn: string): number {
-  return exampleEn.trim().split("").filter((ch) => /[A-Za-z]/.test(ch)).length;
+  const target = exampleEn.trim();
+  const mask = givenLetterMask(exampleEn);
+  let count = 0;
+  for (let i = 0; i < target.length; i += 1) {
+    if (/[A-Za-z]/.test(target[i]!) && !mask[i]) count += 1;
+  }
+  return count;
 }
 
 function reconstructBodyTextCAnswer(
@@ -44,14 +52,19 @@ function reconstructBodyTextCAnswer(
   typedLetters: string,
 ): string {
   const target = exampleEn.trim();
+  const mask = givenLetterMask(exampleEn);
   let letterIndex = 0;
   let out = "";
 
   for (let i = 0; i < target.length; i += 1) {
     const ch = target[i]!;
     if (/[A-Za-z]/.test(ch)) {
-      out += typedLetters[letterIndex] ?? "";
-      letterIndex += 1;
+      if (mask[i]) {
+        out += ch;
+      } else {
+        out += typedLetters[letterIndex] ?? "";
+        letterIndex += 1;
+      }
     } else {
       out += ch;
     }
@@ -65,6 +78,7 @@ function buildBodyTextCDisplayChars(
   typedLetters: string,
 ): BodyTextCDisplayChar[] {
   const target = exampleEn.trim();
+  const mask = givenLetterMask(exampleEn);
   const chars: BodyTextCDisplayChar[] = [];
   let letterIndex = 0;
 
@@ -81,10 +95,16 @@ function buildBodyTextCDisplayChars(
       continue;
     }
 
+    if (mask[i]) {
+      chars.push({ kind: "given", char: ch });
+      continue;
+    }
+
     const isWordStart =
       i === 0 ||
       /\s/.test(target[i - 1]!) ||
-      /[^A-Za-z\s]/.test(target[i - 1]!);
+      /[^A-Za-z\s]/.test(target[i - 1]!) ||
+      Boolean(mask[i - 1]);
 
     const typed = typedLetters[letterIndex];
     if (typed !== undefined && typed !== "") {
@@ -136,6 +156,7 @@ function matchesBodyTextCAnswer(
 
 function displayCharClass(ch: BodyTextCDisplayChar): string {
   if (ch.kind === "filled") return "text-[#1F242E]";
+  if (ch.kind === "given") return "text-[#1F242E]";
   if (ch.kind === "hint") return "text-[#64748B]";
   if (ch.kind === "punct") return "text-[#1F242E]";
   return "text-[#9AA4B4]";

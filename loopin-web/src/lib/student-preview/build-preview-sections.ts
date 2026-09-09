@@ -16,6 +16,12 @@ import type { BodyTextCQuestion } from "@/components/teacher/preview/BodyTextCPr
 import type { GrammarType1Question } from "@/components/teacher/preview/GrammarType1Preview";
 import type { GrammarType2Step } from "@/components/teacher/preview/GrammarType2Preview";
 import { extractCloze } from "@/lib/word-cloze";
+import {
+  canBuildArrangeQuestion,
+  isGivenWord,
+  partitionChunkSlots,
+} from "@/lib/ai/given-chunks";
+import { sanitizeChunkParts } from "@/lib/ai/phrase-chunks";
 
 export type PreviewSection =
   | { kind: "word-match"; label: string; pairs: WordMatchPair[] }
@@ -52,15 +58,19 @@ function stripBrackets(text: string): string {
 function splitChunks(text: string | undefined, fallback: string): string[] {
   const source = text?.includes("/") ? text : fallback;
   if (source.includes("/")) {
-    return source
-      .split("/")
-      .map((part) => part.trim())
-      .filter(Boolean);
+    return sanitizeChunkParts(
+      source
+        .split("/")
+        .map((part) => part.trim())
+        .filter(Boolean),
+    );
   }
-  return stripBrackets(source)
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return sanitizeChunkParts(
+    stripBrackets(source)
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
 }
 
 function buildThreeChoices(
@@ -199,6 +209,7 @@ export function buildWordSpellPreview(item: ProblemWord): PreviewSection {
       englishAfter: cloze.englishAfter,
       answer: cloze.answer,
       answerHint: `${cloze.answer}(${meaning})`,
+      parts: cloze.parts,
     },
   };
 }
@@ -206,8 +217,8 @@ export function buildWordSpellPreview(item: ProblemWord): PreviewSection {
 // --- sentence ---
 
 export function buildBodyTextAPreview(item: ProblemSentence): PreviewSection {
-  const segments = splitChunks(item.chunksKo, item.korean);
-  if (segments.length < 2) {
+  const slots = partitionChunkSlots(splitChunks(item.chunksKo, item.korean));
+  if (!canBuildArrangeQuestion(slots)) {
     return {
       kind: "unavailable",
       label: "번역 배열",
@@ -222,16 +233,20 @@ export function buildBodyTextAPreview(item: ProblemSentence): PreviewSection {
       id: `${item.id}:translate`,
       exampleEn: stripBrackets(item.english),
       exampleKo: stripBrackets(item.korean),
-      segments,
+      slots,
     },
   };
 }
 
 export function buildBodyTextBPreview(item: ProblemSentence): PreviewSection {
-  const segments = splitChunks(item.chunksEn, item.english)
-    .map(normalizeBodyTextBChunk)
-    .filter(Boolean);
-  if (segments.length < 2) {
+  const slots = partitionChunkSlots(splitChunks(item.chunksEn, item.english))
+    .map((slot) =>
+      slot.kind === "playable"
+        ? { ...slot, label: normalizeBodyTextBChunk(slot.label) }
+        : slot,
+    )
+    .filter((slot) => slot.label);
+  if (!canBuildArrangeQuestion(slots)) {
     return {
       kind: "unavailable",
       label: "청크배열",
@@ -246,19 +261,21 @@ export function buildBodyTextBPreview(item: ProblemSentence): PreviewSection {
       id: `${item.id}:chunk`,
       promptKo: stripBrackets(item.korean),
       exampleEn: stripBrackets(item.english),
-      segments,
+      slots,
     },
   };
 }
 
 export function buildBodyTextCPreview(item: ProblemSentence): PreviewSection {
-  const keywords = item.hint
+  const keywords = (item.hint
     ? item.hint
         .split(/[,/]/)
         .map((part) => part.trim())
         .filter(Boolean)
-        .slice(0, 3)
-    : splitChunks(item.chunksEn, item.english).slice(0, 3);
+    : splitChunks(item.chunksEn, item.english)
+  )
+    .filter((part) => !isGivenWord(part) && !isGivenWord(part.split(/\s+/)[0] ?? ""))
+    .slice(0, 3);
 
   return {
     kind: "body-text-c",

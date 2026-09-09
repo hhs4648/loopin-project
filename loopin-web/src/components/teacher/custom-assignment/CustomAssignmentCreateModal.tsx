@@ -10,10 +10,10 @@ import {
 import { getAllIdioms } from "@/lib/problem-bank";
 import {
   parseEnglishPassage,
-  splitIntoMeaningSentences,
   wordSelectionId,
   type ParsedSentence,
 } from "@/lib/ai/split-english-text";
+import { pairPassageSentences } from "@/lib/passage-to-problems";
 import {
   CUSTOM_PROBLEM_TYPE_OPTIONS,
   type CustomProblemTypeId,
@@ -422,9 +422,9 @@ export function CustomAssignmentCreateModal({
   const applyPassage = () => {
     const next = draft.trim();
     if (!next) return;
-    const meanings = splitIntoMeaningSentences(draftKo);
+    const { pairs } = pairPassageSentences(next, draftKo);
     setPassage(next);
-    setPassageMeanings(meanings);
+    setPassageMeanings(pairs.map((pair) => pair.korean));
     setSelectedIds([]);
     setAnalyses({});
     setLoadingIds([]);

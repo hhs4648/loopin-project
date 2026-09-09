@@ -14,6 +14,31 @@ function stripBrackets(text: string): string {
   return text.replace(/\[([^\]]+)\]/g, "$1").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 대화 문장부호는 청크에 남기고, 화살표·이모티콘 같은 장식 기호는 뺀다.
+ * `! ? ' " ~ …` 와 마침표·쉼표·따옴표는 두고, `↳ → ★ 😊` 는 조각으로 두지 않는다.
+ * `given-chunks.ts` 의 같은 정규식과 맞춰 둔다.
+ */
+export function stripDecorativeMarks(text: string): string {
+  return text
+    .replace(/[^\s\p{L}\p{N}.,!?;:'"‘’“”…~\-–—()[\]。？！、，「」『』·]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function sanitizeChunkParts(parts: string[]): string[] {
+  return parts
+    .map((part) => stripDecorativeMarks(part.trim()))
+    .filter((part) => /[\p{L}\p{N}]/u.test(part));
+}
+
+export function sanitizeChunkLine(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return "";
+  const parts = trimmed.includes("/") ? trimmed.split("/") : [trimmed];
+  return sanitizeChunkParts(parts).join(" / ");
+}
+
 const MULTIWORD_PHRASES = [
   "what kind of",
   "related to",
@@ -696,13 +721,15 @@ export function splitEnglishChunksPhrase(
   const trimmed = sentence.trim();
   if (!trimmed) return [];
   if (trimmed.includes("/")) {
-    return trimmed
-      .split("/")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    return sanitizeChunkParts(
+      trimmed
+        .split("/")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
   }
 
-  const plain = stripBrackets(trimmed)
+  const plain = stripDecorativeMarks(stripBrackets(trimmed))
     .replace(/([,;:])/g, " $1 ")
     .replace(/\s+/g, " ")
     .trim();
@@ -731,7 +758,9 @@ export function splitEnglishChunksPhrase(
     chunks.push(...chunkWords(clause.split(/\s+/).filter(Boolean), stored));
   }
 
-  return chunks.map((c) => c.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return sanitizeChunkParts(
+    chunks.map((c) => c.replace(/\s+/g, " ").trim()).filter(Boolean),
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -877,19 +906,21 @@ function rebalance(cuts: number[], scores: number[], total: number): number[] {
 
 /**
  * 한글 뜻 → 구나 단위 청크.
- * 이미 `/`가 있으면 교사가 직접 나눈 것으로 보고 그대로 쓴다.
+ * 이미 `/`가 있으면 교사가 직접 나눈 것으로 보되, 화살표·이모티콘은 뺀다.
  */
 export function splitKoreanChunksPhrase(sentence: string): string[] {
   const trimmed = sentence.trim();
   if (!trimmed) return [];
   if (trimmed.includes("/")) {
-    return trimmed
-      .split("/")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    return sanitizeChunkParts(
+      trimmed
+        .split("/")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
   }
 
-  const parts = stripBrackets(trimmed)
+  const parts = stripDecorativeMarks(stripBrackets(trimmed))
     .split(/\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
@@ -923,11 +954,11 @@ export function splitKoreanChunksPhrase(sentence: string): string[] {
   }
   if (start < parts.length) chunks.push(parts.slice(start).join(" "));
 
-  return chunks.filter(Boolean);
+  return sanitizeChunkParts(chunks.filter(Boolean));
 }
 
 export function formatChunkLine(parts: string[]): string {
-  return parts.join(" / ");
+  return sanitizeChunkParts(parts).join(" / ");
 }
 
 /* ------------------------------------------------------------------ */

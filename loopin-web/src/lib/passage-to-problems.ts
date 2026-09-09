@@ -1,6 +1,7 @@
 import {
+  splitEnglishSentencesByPunctuation,
   splitIntoMeaningSentences,
-  splitIntoSentences,
+  mergeShortSentencePairs,
 } from "@/lib/ai/split-english-text";
 import type { ProblemSentence, ProblemWord } from "@/lib/problem-bank";
 import { ensureWordCloze, wordAppearsInText } from "@/lib/word-cloze";
@@ -21,13 +22,10 @@ export function pairPassageSentences(
   enCount: number;
   koCount: number;
 } {
-  const en = splitIntoSentences(english);
+  const en = splitEnglishSentencesByPunctuation(english);
   const ko = splitIntoMeaningSentences(korean);
   return {
-    pairs: en.map((text, index) => ({
-      english: text,
-      korean: ko[index] ?? "",
-    })),
+    pairs: mergeShortSentencePairs(en, ko),
     enCount: en.length,
     koCount: ko.length,
   };

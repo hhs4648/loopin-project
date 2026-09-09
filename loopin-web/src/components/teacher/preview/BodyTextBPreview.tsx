@@ -7,6 +7,7 @@ import { useScaleToFit } from "./use-scale-to-fit";
 import { PreviewFrame } from "./PreviewFrame";
 import {
   BODY_PREVIEW_EMPTY_HINT_CLASS,
+  BODY_PREVIEW_GIVEN_CLASS,
   BODY_PREVIEW_OPTION_CLASS,
   BODY_PREVIEW_PLACED_CLASS,
   BODY_PREVIEW_TILE_CLASS,
@@ -19,6 +20,7 @@ import {
   EXERCISE_PASSAGE_KO_CLASS,
   exerciseFeedbackTitleClass,
 } from "./exercise-typography";
+import type { ChunkSlot } from "@/lib/ai/given-chunks";
 
 const ASSET = "/assets/student-preview/본문A.svg";
 const PASSAGE = { x: 69, y: 211, w: 306, h: 56 };
@@ -32,10 +34,10 @@ export type BodyTextBQuestion = {
   id: string;
   promptKo: string;
   exampleEn: string;
-  segments: string[];
+  slots: ChunkSlot[];
 };
 
-type Tile = { id: string; segmentIndex: number; label: string };
+type Tile = { id: string; playableIndex: number; label: string };
 
 /** 본문 B 청크 — 힌트가 되지 않게 소문자·마침표 제거 (loopin-webapp) */
 export function normalizeBodyTextBChunk(label: string): string {
@@ -52,13 +54,15 @@ function shuffle<T>(items: T[]): T[] {
 }
 
 function buildTiles(question: BodyTextBQuestion): Tile[] {
-  const indexed = question.segments.map((label, segmentIndex) => ({
-    label: normalizeBodyTextBChunk(label),
-    segmentIndex,
-  }));
+  const indexed = question.slots
+    .filter((slot) => slot.kind === "playable")
+    .map((slot, playableIndex) => ({
+      label: slot.label,
+      playableIndex,
+    }));
   return shuffle(indexed).map((item, index) => ({
     id: `${question.id}-segment-${index}`,
-    segmentIndex: item.segmentIndex,
+    playableIndex: item.playableIndex,
     label: item.label,
   }));
 }
@@ -89,7 +93,9 @@ export function BodyTextBPreview({ question }: { question: BodyTextBQuestion }) 
 
   const handleSubmit = () => {
     if (!isPlaying || !allFilled) return;
-    const isCorrect = selectedTiles.every((tile, index) => tile.segmentIndex === index);
+    const isCorrect = selectedTiles.every(
+      (tile, index) => tile.playableIndex === index,
+    );
     setResult(isCorrect ? "correct" : "wrong");
   };
 
@@ -140,22 +146,52 @@ export function BodyTextBPreview({ question }: { question: BodyTextBQuestion }) 
             ref={sentenceContentRef}
             className="flex w-full flex-wrap items-center justify-center gap-1"
           >
-            {selectedTiles.length > 0 ? (
-              selectedTiles.map((tile, index) => (
-                <button
-                  key={`placed-${tile.id}-${index}`}
-                  type="button"
-                  className={`whitespace-nowrap ${BODY_PREVIEW_PLACED_CLASS}`}
-                  onClick={() => handlePlacedClick(index)}
-                >
-                  <span className={BODY_PREVIEW_OPTION_CLASS}>{tile.label}</span>
-                </button>
-              ))
-            ) : (
-              <p className={`text-center ${BODY_PREVIEW_EMPTY_HINT_CLASS}`}>
-                예문 조각을 순서대로 눌러 문장을 완성하세요
-              </p>
-            )}
+            {(() => {
+              const lastGivenIndex = question.slots.reduce(
+                (acc, slot, index) => (slot.kind === "given" ? index : acc),
+                -1,
+              );
+              const hasGiven = lastGivenIndex >= 0;
+              if (selectedTiles.length === 0 && !hasGiven) {
+                return (
+                  <p className={`text-center ${BODY_PREVIEW_EMPTY_HINT_CLASS}`}>
+                    예문 조각을 순서대로 눌러 문장을 완성하세요
+                  </p>
+                );
+              }
+              let playableCursor = 0;
+              return question.slots.map((slot, index) => {
+                if (slot.kind === "given") {
+                  return (
+                    <span
+                      key={`given-${index}`}
+                      className={`whitespace-nowrap ${BODY_PREVIEW_GIVEN_CLASS}`}
+                    >
+                      <span className={BODY_PREVIEW_OPTION_CLASS}>{slot.label}</span>
+                    </span>
+                  );
+                }
+                const placed = selectedTiles[playableCursor];
+                const placedIndex = playableCursor;
+                playableCursor += 1;
+                if (placed) {
+                  return (
+                    <button
+                      key={`placed-${placed.id}-${placedIndex}`}
+                      type="button"
+                      className={`whitespace-nowrap ${BODY_PREVIEW_PLACED_CLASS}`}
+                      onClick={() => handlePlacedClick(placedIndex)}
+                    >
+                      <span className={BODY_PREVIEW_OPTION_CLASS}>{placed.label}</span>
+                    </button>
+                  );
+                }
+                if (index < lastGivenIndex) {
+                  return <span key={`gap-${index}`} className="inline-block w-2" />;
+                }
+                return null;
+              });
+            })()}
           </div>
         </div>
 
