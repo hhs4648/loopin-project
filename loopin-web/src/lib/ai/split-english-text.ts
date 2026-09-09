@@ -17,15 +17,19 @@ export type ParsedSentence = {
  * 마침표·물음표·느낌표(뜻은 「。？！」도) 뒤에서 가른다.
  * 뒤에 칸이 없어도 글자가 이어지면 가른다 (`A.B.` → `A.` / `B.`).
  * `3.14`처럼 숫자 소수점은 그대로 둔다.
+ * `Mrs.` / `Dr.` / `Mr.` 같은 **호칭·약어 마침표는 가름이 아니다**
+ * (`Mrs. Schmidt`를 `Mrs.` / `Schmidt`로 쪼개지 않는다). `A.B.` 는 그대로 가른다.
  *
  * **여는 따옴표부터 닫는 따옴표까지는 한 문장이다.** 대화문 안의 마침표·느낌표는
  * 가름이 아니다 (`"It's already 7:30. Oops! I'm late."`). ASCII `'` 는 `It's` /
  * `I'm` 때문에 따옴표로 보지 않는다.
  *
- * **따옴표를 닫고 이어지는 전달절도 같은 문장이다.** 영어는 `Say honestly, "…"`처럼
- * 전달이 앞이고, 한글은 `"…"라고 솔직하게 말해`처럼 전달이 뒤다. 물음표 뒤 닫는
- * 따옴표에 `라고`/`솔직하게 말해`/`she said`가 이어지면 가르지 않는다.
- * `"늦지 마." 엄마는 문을 닫았다`처럼 전달이 아니면 그 뒤에서 가른다.
+ * **따옴표를 닫고 이어지는 전달절도 같은 문장이다.** 영어는 전달이 앞
+ * (`Say honestly, "…"`)이거나 뒤 (`"…," she said` / `"…!" said Vashti`)다.
+ * 한글은 `"…"라고 솔직하게 말해`뿐 아니라 **주어 + 말하다** (`"…." 그녀가 말했다`)
+ * 도 같은 문장이다. 예전에는 `라고`/`말했`으로 시작하는 경우만 봐서 `그녀가 말했다`를
+ * 다음 문장으로 잘랐고, 영어는 `"…," she said`가 한 문장이라 짝이 한 칸씩 밀렸다.
+ * `"늦지 마." 엄마는 문을 닫았다`처럼 말하기 동사가 없으면 그 뒤에서 가른다.
  *
  * 문장부호 뒤의 **닫는 따옴표는 앞 문장에 붙인다.** 예전 규칙은 마침표 다음 글자가
  * 따옴표라 조건에 안 맞아 **따옴표로 끝나는 문장을 아예 못 갈랐다.** 따옴표를 두 개
@@ -64,6 +68,19 @@ function isDecimalDot(text: string, index: number): boolean {
   );
 }
 
+/** `Mrs. Schmidt` / `Dr. Kim` — 호칭·약어 뒤 마침표는 문장 끝이 아니다. */
+const TITLE_ABBREV =
+  /^(?:Mr|Mrs|Ms|Dr|Prof|Jr|Sr|vs|etc|Mt|Ft|St|Rev|Lt|Col|Gen|Sgt|Capt)$/i;
+
+function isAbbreviationDot(text: string, index: number): boolean {
+  if (text[index] !== ".") return false;
+  let start = index;
+  while (start > 0 && /[A-Za-z]/.test(text[start - 1]!)) start -= 1;
+  if (start === index) return false;
+  if (start > 0 && /[A-Za-z0-9]/.test(text[start - 1]!)) return false;
+  return TITLE_ABBREV.test(text.slice(start, index));
+}
+
 function canSplitAfter(text: string, end: number): boolean {
   if (end >= text.length) return false;
   const next = text[end]!;
@@ -76,15 +93,65 @@ function skipSpaces(text: string, index: number): number {
   return i;
 }
 
-/** 닫는 따옴표 뒤의 「라고 말했다 / 솔직하게 말해 / she said」는 새 문장이 아니다. */
-const KOREAN_QUOTE_ATTRIB =
-  /^(?:이라고|이라면서|이라며|이라는|라고|라면서|라며|라는|하고|하면서|하며|고(?:\s|했)|솔직하게|솔직히|말했|말해|이야기했|이야기해|대답했|물었|외쳤)/;
+const ENGLISH_SAY_VERB =
+  "(?:said|asked|replied|answered|shouted|whispered|cried|added|continued|explained|yelled|called|muttered|noted|remarked)";
+const ENGLISH_REPORTING_HEAD =
+  new RegExp(
+    `^(?:${ENGLISH_SAY_VERB}\\s+\\S+|` +
+      `(?:she|he|they|i|we|you|[A-Z][\\w.'-]*)(?:\\s+[A-Z][\\w.'-]*){0,2}\\s+${ENGLISH_SAY_VERB}\\b)`,
+    "i",
+  );
+const KOREAN_SAY_VERB =
+  /말했|말해|이야기했|이야기해|대답했|물었|외쳤|속삭였|소리쳤|중얼|되물었|덧붙였/;
+const KOREAN_QUOTE_PARTICLE =
+  /^(?:이라고|이라면서|이라며|이라는|라고|라면서|라며|라는|하고|하면서|하며|고(?:\s|했)|솔직하게|솔직히)/;
 
+function takeFirstClause(text: string): string {
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (!isSentencePunct(ch, true)) continue;
+    if (isDecimalDot(text, i)) continue;
+    if (isAbbreviationDot(text, i)) continue;
+    return text.slice(0, i + 1).trim();
+  }
+  return text.trim().slice(0, 64);
+}
+
+/** `"…." 그녀가 말했다` / `said Vashti` — 짧은 말하기 절만 전달절로 본다. */
+export function isReportingClause(text: string): boolean {
+  const t = text.replace(/^[\s,.'"’”」』]+/u, "").trim();
+  if (!t || t.length > 64) return false;
+  if (/["“「『].{8,}["”」』]/.test(t)) return false;
+  if (ENGLISH_REPORTING_HEAD.test(t)) return true;
+  if (KOREAN_QUOTE_PARTICLE.test(t) && t.length <= 64) return true;
+  return t.length <= 48 && KOREAN_SAY_VERB.test(t);
+}
+
+function endsWithQuotedSpeech(text: string): boolean {
+  const t = text.trim();
+  return /["”」』][,.!?…]?\s*$/.test(t) || /[,.!?…]["”」』]\s*$/.test(t);
+}
+
+/** 닫는 따옴표 뒤의 전달절은 새 문장이 아니다. */
 function isQuoteAttribution(text: string, end: number): boolean {
-  const rest = text.slice(end).replace(/^[\s,.'"’”」』]+/u, "");
+  const rest = text.slice(end).replace(/^[\s,]+/u, "");
   if (!rest) return false;
-  if (KOREAN_QUOTE_ATTRIB.test(rest)) return true;
-  return /^[a-z]/.test(rest);
+  if (/^[a-z]/.test(rest)) return true;
+  return isReportingClause(takeFirstClause(rest));
+}
+
+/** 이미 갈린 `그녀가 말했다` / `said Vashti` 를 앞 따옴표 문장에 되돌린다. */
+function mergeAttributionSentences(sentences: string[]): string[] {
+  const out: string[] = [];
+  for (const part of sentences) {
+    const prev = out.at(-1);
+    if (prev && isReportingClause(part) && endsWithQuotedSpeech(prev)) {
+      out[out.length - 1] = joinSentenceParts(prev, part);
+      continue;
+    }
+    out.push(part);
+  }
+  return out;
 }
 
 function matchingQuoteClose(ch: string, stack: string[]): boolean {
@@ -162,6 +229,7 @@ function splitBySentencePunctuation(raw: string, korean: boolean): string[] {
     if (stack.length > 0) continue;
     if (!isSentencePunct(ch, korean)) continue;
     if (isDecimalDot(trimmed, i)) continue;
+    if (!korean && isAbbreviationDot(trimmed, i)) continue;
 
     let end = i + 1;
     let extra = 0;
@@ -177,14 +245,28 @@ function splitBySentencePunctuation(raw: string, korean: boolean): string[] {
   }
 
   push(start, trimmed.length);
-  return parts.length > 0 ? parts : [trimmed];
+  return mergeAttributionSentences(parts.length > 0 ? parts : [trimmed]);
 }
 
-/** 인사·감탄 한두 단어(`Hi!`, `Thank you.`)는 단독 문항으로 두지 않는다. */
-const SHORT_SENTENCE_WORDS = 2;
+/** 인사·감탄(`Hi!`, `Thank you.`)만 단독 문항으로 두지 않는다. `I'm Hannah.` 는 합치지 않는다. */
+const MERGEABLE_GREETING =
+  /^(?:hi|hello|hey|oh|ah|wow|oops|yes|no|ok|okay|bye|goodbye|thanks|thank you|thank you very much|good morning|good afternoon|good evening|good night|see you|excuse me|sorry|hi there)$/i;
 
 export function countEnglishWords(text: string): number {
   return (text.match(/[A-Za-z0-9]+(?:'[A-Za-z]+)?/g) ?? []).length;
+}
+
+/** 단어 1개, 또는 `Thank you.` 같은 인사만 다음 문장에 붙인다. */
+export function isMergeableShortSentence(text: string): boolean {
+  const words = countEnglishWords(text);
+  if (words <= 1) return words === 1;
+  if (words > 4) return false;
+  const folded = text
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return MERGEABLE_GREETING.test(folded);
 }
 
 function joinSentenceParts(left: string, right: string): string {
@@ -195,27 +277,25 @@ function joinSentenceParts(left: string, right: string): string {
   return `${a} ${b}`;
 }
 
-/** 단어가 2개 이하인 문장은 다음 문장과 합친다. 마지막이면 앞 문장과 합친다. */
+/** 인사·감탄만 다음 문장과 합친다. 마지막이면 앞 문장과 합친다. */
 export function mergeShortSentences(sentences: string[]): string[] {
-  return mergeShortGroups(sentences, countEnglishWords).map((group) =>
+  return mergeShortGroups(sentences, (part) =>
+    isMergeableShortSentence(part),
+  ).map((group) =>
     group.reduce((acc, part) => joinSentenceParts(acc, part), ""),
   );
 }
 
 function mergeShortGroups<T>(
   items: T[],
-  wordsOf: (item: T) => number,
+  shouldMerge: (item: T) => boolean,
 ): T[][] {
   if (items.length === 0) return [];
   const groups: T[][] = [];
   for (const item of items) {
     const prev = groups.at(-1);
     const lastPart = prev?.at(-1);
-    if (
-      prev &&
-      lastPart !== undefined &&
-      wordsOf(lastPart) <= SHORT_SENTENCE_WORDS
-    ) {
+    if (prev && lastPart !== undefined && shouldMerge(lastPart)) {
       prev.push(item);
       continue;
     }
@@ -226,7 +306,7 @@ function mergeShortGroups<T>(
   if (
     groups.length >= 2 &&
     lastPart !== undefined &&
-    wordsOf(lastPart) <= SHORT_SENTENCE_WORDS
+    shouldMerge(lastPart)
   ) {
     const last = groups.pop()!;
     groups.at(-1)!.push(...last);
@@ -234,7 +314,7 @@ function mergeShortGroups<T>(
   return groups;
 }
 
-/** 영어 단어 수로 짧은 문장을 묶고, 같은 칸의 한글 뜻도 함께 붙인다. */
+/** 영어가 인사·감탄이면 다음 문장과 묶고, 같은 칸의 한글 뜻도 함께 붙인다. */
 export function mergeShortSentencePairs(
   english: string[],
   korean: string[],
@@ -243,18 +323,18 @@ export function mergeShortSentencePairs(
     english: text,
     korean: korean[index] ?? "",
   }));
-  return mergeShortGroups(pairs, (pair) => countEnglishWords(pair.english)).map(
-    (group) => ({
-      english: group.reduce(
-        (acc, pair) => joinSentenceParts(acc, pair.english),
-        "",
-      ),
-      korean: group.reduce(
-        (acc, pair) => joinSentenceParts(acc, pair.korean),
-        "",
-      ),
-    }),
-  );
+  return mergeShortGroups(pairs, (pair) =>
+    isMergeableShortSentence(pair.english),
+  ).map((group) => ({
+    english: group.reduce(
+      (acc, pair) => joinSentenceParts(acc, pair.english),
+      "",
+    ),
+    korean: group.reduce(
+      (acc, pair) => joinSentenceParts(acc, pair.korean),
+      "",
+    ),
+  }));
 }
 
 const WORD_RE = /^[A-Za-z]+(?:'[A-Za-z]+)?$/;
