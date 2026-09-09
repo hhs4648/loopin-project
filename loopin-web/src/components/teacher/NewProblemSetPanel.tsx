@@ -25,6 +25,7 @@ import {
   type QuickAssignPlan,
 } from "@/lib/quick-assign";
 import { CLASS_LAYOUT } from "@/lib/class-layout";
+import { assignedClassHomeHref } from "@/lib/class-tabs";
 import {
   type ProblemGrammar,
   type ProblemSentence,
